@@ -1,0 +1,9 @@
+# Git ignore
+backend/venv/
+backend/__pycache__/
+backend/uploads/*.docx
+backend/uploads/*.pdf
+frontend/node_modules/
+*.pyc
+**/__pycache__/
+*.db
