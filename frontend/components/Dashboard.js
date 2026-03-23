@@ -86,7 +86,7 @@ export default function Dashboard() {
           {[
             { key: 'strong_hire', label: 'Strong Hire', class: 'badge-strong-hire' },
             { key: 'hire', label: 'Hire', class: 'badge-hire' },
-            { key: 'maybe', label: 'Maybe', class: 'badge-maybe' },
+            { key: 'consider', label: 'Consider', class: 'badge-consider' },
             { key: 'no_hire', label: 'No Hire', class: 'badge-no-hire' },
           ].map((item) => (
             <div key={item.key} style={{ textAlign: 'center' }}>

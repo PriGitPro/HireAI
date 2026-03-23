@@ -38,12 +38,12 @@ class MatchLevel(str, Enum):
 class Recommendation(str, Enum):
     STRONG_HIRE = "strong_hire"
     HIRE = "hire"
-    MAYBE = "maybe"
+    CONSIDER = "consider"
     NO_HIRE = "no_hire"
 
 
 class GapSeverity(str, Enum):
-    CRITICAL = "critical"   # blockers — will trigger no_hire or maybe ceiling
+    CRITICAL = "critical"   # blockers — will trigger no_hire or consider ceiling
     IMPORTANT = "important"  # significant but not blocking
     MINOR = "minor"         # nice-to-have misses
 

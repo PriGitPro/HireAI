@@ -57,6 +57,7 @@ export default function Evaluations({ requisition, onBack }) {
   // SSE Evaluation state
   const [evalStream, setEvalStream] = useState(null); // EventSource ref
   const [evalProgress, setEvalProgress] = useState(null); // { candidateId, stages, currentStage, message, error }
+  const [showFullTrace, setShowFullTrace] = useState(false);
 
   // Upload form state
   const [uploadName, setUploadName] = useState('');
@@ -467,9 +468,11 @@ export default function Evaluations({ requisition, onBack }) {
                           <span>Gaps: {evalProgress.matchStats.gaps}</span>
                         </>
                       )}
-                      {evalProgress.decisionStats && (
-                        <span>→ {formatRecommendation(evalProgress.decisionStats.recommendation)} ({(evalProgress.decisionStats.confidence * 100).toFixed(0)}% confidence)</span>
-                      )}
+                      {evalProgress.decisionStats && (() => {
+                        const conf = evalProgress.decisionStats.confidence || 0;
+                        const confLabel = conf >= 0.80 ? 'high' : conf >= 0.60 ? 'moderate' : conf >= 0.40 ? 'low' : 'very low';
+                        return <span>→ {formatRecommendation(evalProgress.decisionStats.recommendation)} · {(conf * 100).toFixed(0)}% confidence ({confLabel})</span>;
+                      })()}
                     </div>
                   )}
 
@@ -521,7 +524,17 @@ export default function Evaluations({ requisition, onBack }) {
                       <div>
                         <div className="stat-label">Confidence</div>
                         <div className="stat-value">{(evaluation.confidence * 100).toFixed(0)}%</div>
-                        <div className="score-bar" style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: '0.7rem', marginTop: 2, marginBottom: 4, color:
+                          evaluation.confidence >= 0.80 ? 'var(--strong-hire)' :
+                          evaluation.confidence >= 0.60 ? '#facc15' :
+                          evaluation.confidence >= 0.40 ? '#fb923c' : 'var(--no-hire)'
+                        }}>
+                          {evaluation.confidence >= 0.80 ? '● High — strong signal' :
+                           evaluation.confidence >= 0.60 ? '● Moderate — verify in interview' :
+                           evaluation.confidence >= 0.40 ? '● Low — manual review advised' :
+                                                           '● Very low — insufficient signal'}
+                        </div>
+                        <div className="score-bar" style={{ marginTop: 4 }}>
                           <div
                             className={`score-bar-fill ${getScoreLevel(evaluation.confidence * 100)}`}
                             style={{ width: `${evaluation.confidence * 100}%` }}
@@ -652,31 +665,51 @@ export default function Evaluations({ requisition, onBack }) {
                     )}
                   </div>
 
-                  {/* Decision Trace — signal-based steps */}
-                  {evaluation.decision_trace && evaluation.decision_trace.length > 0 && (
-                    <div className="card">
-                      <div className="card-title" style={{ marginBottom: 'var(--space-lg)' }}>🔍 Decision Trace</div>
-                      <div className="decision-trace">
-                        {evaluation.decision_trace.map((step, i) => (
-                          <div key={i} className="trace-step" style={{ animationDelay: `${i * 0.1}s` }}>
-                            <div className={`trace-dot ${step.impact || 'neutral'}`} />
-                            <div className="trace-content">
-                              {/* Support both old {action} and new {signal} field */}
-                              <div className="trace-action">
-                                Step {step.step}: {step.signal || step.action}
-                                {step.weight != null && (
-                                  <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                                    weight {(step.weight * 100).toFixed(0)}%
-                                  </span>
-                                )}
+                  {/* Decision Trace — summary + full detail */}
+                  {evaluation.decision_trace && evaluation.decision_trace.length > 0 && (() => {
+                    const SUMMARY_SIGNALS = new Set(['skill_match', 'critical_gap_check', 'experience', 'recommendation']);
+                    const summarySteps = evaluation.decision_trace.filter(s =>
+                      SUMMARY_SIGNALS.has(s.signal || s.action || '') || s.impact !== 'neutral'
+                    );
+                    const displaySteps = showFullTrace ? evaluation.decision_trace : summarySteps;
+                    const hiddenCount = evaluation.decision_trace.length - summarySteps.length;
+                    return (
+                      <div className="card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-lg)' }}>
+                          <div className="card-title">🔍 Decision Reasoning</div>
+                          <button
+                            onClick={() => setShowFullTrace(f => !f)}
+                            style={{ fontSize: '0.7rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', color: 'var(--text-muted)' }}
+                          >
+                            {showFullTrace ? 'Show summary' : `Full analysis (${evaluation.decision_trace.length} steps)`}
+                          </button>
+                        </div>
+                        <div className="decision-trace">
+                          {displaySteps.map((step, i) => (
+                            <div key={step.step} className="trace-step" style={{ animationDelay: `${i * 0.08}s` }}>
+                              <div className={`trace-dot ${step.impact || 'neutral'}`} />
+                              <div className="trace-content">
+                                <div className="trace-action">
+                                  {step.signal || step.action}
+                                  {showFullTrace && step.weight != null && (
+                                    <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                                      {(step.weight * 100).toFixed(0)}% weight
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="trace-finding">{step.finding}</div>
                               </div>
-                              <div className="trace-finding">{step.finding}</div>
                             </div>
+                          ))}
+                        </div>
+                        {!showFullTrace && hiddenCount > 0 && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)', paddingLeft: 20 }}>
+                            {hiddenCount} supporting step(s) hidden — click Full analysis to expand
                           </div>
-                        ))}
+                        )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Suggested Actions */}
                   {evaluation.suggested_actions && evaluation.suggested_actions.length > 0 && (
@@ -833,7 +866,7 @@ export default function Evaluations({ requisition, onBack }) {
                   >
                     <option value="strong_hire">Strong Hire</option>
                     <option value="hire">Hire</option>
-                    <option value="maybe">Maybe</option>
+                    <option value="consider">Consider</option>
                     <option value="no_hire">No Hire</option>
                   </select>
                 </div>
@@ -946,7 +979,7 @@ function getRecommendationBadge(rec) {
   switch (rec) {
     case 'strong_hire': return 'badge-strong-hire';
     case 'hire': return 'badge-hire';
-    case 'maybe': return 'badge-maybe';
+    case 'consider': return 'badge-consider';
     case 'no_hire': return 'badge-no-hire';
     default: return 'badge-info';
   }
@@ -956,7 +989,7 @@ function getRecommendationColor(rec) {
   switch (rec) {
     case 'strong_hire': return 'rgba(16, 185, 129, 0.3)';
     case 'hire': return 'rgba(52, 211, 153, 0.3)';
-    case 'maybe': return 'rgba(245, 158, 11, 0.3)';
+    case 'consider': return 'rgba(245, 158, 11, 0.3)';
     case 'no_hire': return 'rgba(239, 68, 68, 0.3)';
     default: return 'var(--border-subtle)';
   }
@@ -966,7 +999,7 @@ function formatRecommendation(rec) {
   switch (rec) {
     case 'strong_hire': return 'Strong Hire';
     case 'hire': return 'Hire';
-    case 'maybe': return 'Maybe';
+    case 'consider': return 'Consider';
     case 'no_hire': return 'No Hire';
     default: return rec || '—';
   }

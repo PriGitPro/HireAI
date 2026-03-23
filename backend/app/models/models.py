@@ -87,7 +87,7 @@ class Evaluation(Base):
     candidate_id = Column(String, ForeignKey("candidates.id"), nullable=False, unique=True)
 
     # ── Decision (deterministic) ──────────────────────────────────────────────
-    recommendation = Column(String(32), nullable=False)  # strong_hire | hire | maybe | no_hire
+    recommendation = Column(String(32), nullable=False)  # strong_hire | hire | consider | no_hire
     confidence = Column(Float, nullable=False)            # 0.0 – 1.0 (evidence-calibrated)
     composite_score = Column(Float, nullable=True)        # 0 – 100 (weighted signal sum)
 

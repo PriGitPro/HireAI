@@ -1,5 +1,6 @@
 """Job Requisition API routes with comprehensive logging."""
 
+import json
 import logging
 import time
 from typing import Optional
@@ -53,11 +54,14 @@ async def create_requisition(
         parse_start = time.time()
         logger.info(f"REQUISITION.create | Auto-parsing JD via LLM...")
         svc = EvaluationService()
-        structured = await svc.parse_job_description(data.description_raw)
-        req.description_structured = structured
-        req.required_skills = structured.get("required_skills", [])
-        req.experience_requirements = structured.get("experience_requirements")
-        req.education_requirements = structured.get("education_requirements")
+        parsed_jd = await svc.parse_job_description(data.description_raw)
+        req.description_structured = json.loads(parsed_jd.model_dump_json())
+        req.required_skills = [
+            {"name": s.canonical_name, "importance": s.importance.value, "category": s.category.value}
+            for s in parsed_jd.required_skills
+        ]
+        req.experience_requirements = parsed_jd.experience_requirements.model_dump()
+        req.education_requirements = parsed_jd.education_requirements.model_dump()
         db.add(req)
 
         skills_count = len(req.required_skills or [])

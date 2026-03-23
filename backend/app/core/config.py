@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # Score-based decision tiers (composite 0–100)
     SCORE_STRONG_HIRE: float = 78.0
     SCORE_HIRE: float = 62.0
-    SCORE_MAYBE: float = 42.0
+    SCORE_CONSIDER: float = 42.0
 
     # ── Pipeline: caching ────────────────────────────────────────────────────
     # In-process parse cache (avoids redundant LLM calls)

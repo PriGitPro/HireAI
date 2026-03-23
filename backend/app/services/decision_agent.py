@@ -1,7 +1,7 @@
 """Decision Agent — rule-based signal → decision engine.
 
 Converts matching signals into a final EvaluationOutput with:
-  - Deterministic recommendation tier (strong_hire/hire/maybe/no_hire)
+  - Deterministic recommendation tier (strong_hire/hire/consider/no_hire)
   - Calibrated confidence (evidence density × signal consistency × gap severity)
   - Composite score (weighted sum of signals)
   - Ordered decision trace
@@ -43,8 +43,8 @@ WEIGHT_OVERALL_FIT = 0.15
 # ── Recommendation thresholds ─────────────────────────────────────────────────
 THRESHOLD_STRONG_HIRE = 78.0
 THRESHOLD_HIRE = 62.0
-THRESHOLD_MAYBE = 42.0
-# < THRESHOLD_MAYBE → NO_HIRE
+THRESHOLD_CONSIDER = 42.0
+# < THRESHOLD_CONSIDER → NO_HIRE
 
 # ── Confidence components ─────────────────────────────────────────────────────
 # Evidence density: fraction of required skills that have non-empty evidence
@@ -170,7 +170,7 @@ class DecisionAgent:
                 step=step, signal="critical_gap_check",
                 finding=(
                     f"{n_critical_gaps} critical gap(s) detected: {gap_names}. "
-                    f"Capping recommendation at 'maybe' if score < {THRESHOLD_HIRE}"
+                    f"Capping recommendation at 'consider' if score < {THRESHOLD_HIRE}"
                 ),
                 impact="negative",
             ))
@@ -235,7 +235,7 @@ class DecisionAgent:
             "thresholds": {
                 "strong_hire": THRESHOLD_STRONG_HIRE,
                 "hire": THRESHOLD_HIRE,
-                "maybe": THRESHOLD_MAYBE,
+                "consider": THRESHOLD_CONSIDER,
             },
             "critical_missing_count": len(critical_missing),
             "critical_weak_count": len(critical_weak),
@@ -331,13 +331,13 @@ class DecisionAgent:
 
         Hard rules (applied first):
           - 2+ critical skills missing → no_hire regardless of score
-          - 1 critical skill missing AND score < hire threshold → maybe ceiling
-          - 3+ critical weak/missing → maybe ceiling
+          - 1 critical skill missing AND score < hire threshold → consider ceiling
+          - 3+ critical weak/missing → consider ceiling
 
         Score thresholds (applied after hard rules):
           - >= 78 → strong_hire
           - >= 62 → hire
-          - >= 42 → maybe
+          - >= 42 → consider
           - < 42  → no_hire
         """
         # Hard rule 1: multiple critical misses → no_hire
@@ -345,24 +345,24 @@ class DecisionAgent:
             logger.debug(f"DECISION | Hard rule: {n_critical_missing} critical misses → no_hire")
             return Recommendation.NO_HIRE
 
-        # Hard rule 2: 1 critical miss + experience gap → maybe ceiling
+        # Hard rule 2: 1 critical miss + experience gap → consider ceiling
         total_critical_issues = n_critical_missing + n_critical_weak
         if total_critical_issues >= 3:
-            logger.debug(f"DECISION | Hard rule: {total_critical_issues} critical issues → maybe ceiling")
-            return Recommendation.MAYBE if composite >= THRESHOLD_MAYBE else Recommendation.NO_HIRE
+            logger.debug(f"DECISION | Hard rule: {total_critical_issues} critical issues → consider ceiling")
+            return Recommendation.CONSIDER if composite >= THRESHOLD_CONSIDER else Recommendation.NO_HIRE
 
-        # Hard rule 3: 1 critical missing → cap at maybe unless score is very high
+        # Hard rule 3: 1 critical missing → cap at consider unless score is very high
         if n_critical_missing == 1 and composite < THRESHOLD_HIRE:
-            logger.debug(f"DECISION | Hard rule: 1 critical missing, score {composite:.1f} → maybe ceiling")
-            return Recommendation.MAYBE
+            logger.debug(f"DECISION | Hard rule: 1 critical missing, score {composite:.1f} → consider ceiling")
+            return Recommendation.CONSIDER
 
         # Score thresholds
         if composite >= THRESHOLD_STRONG_HIRE:
             return Recommendation.STRONG_HIRE
         elif composite >= THRESHOLD_HIRE:
             return Recommendation.HIRE
-        elif composite >= THRESHOLD_MAYBE:
-            return Recommendation.MAYBE
+        elif composite >= THRESHOLD_CONSIDER:
+            return Recommendation.CONSIDER
         else:
             return Recommendation.NO_HIRE
 
@@ -430,7 +430,7 @@ class DecisionAgent:
         rec_label = {
             Recommendation.STRONG_HIRE: "a strong hire",
             Recommendation.HIRE: "a hire",
-            Recommendation.MAYBE: "a borderline candidate",
+            Recommendation.CONSIDER: "a borderline candidate",
             Recommendation.NO_HIRE: "not recommended for this role",
         }[recommendation]
         parts.append(

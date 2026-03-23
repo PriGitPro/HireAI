@@ -748,19 +748,19 @@ class EvaluationService:
                 parent_category=parent,
             ))
 
-        exp_raw = raw.get("experience_requirements", {})
+        exp_raw = raw.get("experience_requirements") or {}
         experience_req = ParsedExperienceReq(
             min_years=exp_raw.get("min_years"),
             max_years=exp_raw.get("max_years"),
-            preferred_areas=exp_raw.get("preferred_areas", []),
-            description=exp_raw.get("description", ""),
+            preferred_areas=exp_raw.get("preferred_areas") or [],
+            description=exp_raw.get("description") or "",
         )
 
-        edu_raw = raw.get("education_requirements", {})
+        edu_raw = raw.get("education_requirements") or {}
         education_req = ParsedEducationReq(
-            min_level=edu_raw.get("min_level", "none"),
-            preferred_fields=edu_raw.get("preferred_fields", []),
-            description=edu_raw.get("description", ""),
+            min_level=edu_raw.get("min_level") or "none",
+            preferred_fields=edu_raw.get("preferred_fields") or [],
+            description=edu_raw.get("description") or "",
         )
 
         return ParsedJobDescription(
@@ -781,17 +781,17 @@ class EvaluationService:
         for s in raw.get("skills", []):
             if not isinstance(s, dict):
                 continue
-            raw_name = s.get("name", "").strip()
+            raw_name = (s.get("name") or "").strip()
             if not raw_name:
                 continue
             canonical = canonicalize(raw_name)
             parent = get_parent_category(canonical)
-            evidence = s.get("evidence", "").strip()
+            evidence = (s.get("evidence") or "").strip()
 
             skills.append(ParsedSkillEntry(
                 name=raw_name,
                 canonical_name=canonical,
-                proficiency=s.get("proficiency", "intermediate"),
+                proficiency=s.get("proficiency") or "intermediate",
                 evidence=evidence,
                 parent_category=parent,
             ))
@@ -801,10 +801,10 @@ class EvaluationService:
             if not isinstance(e, dict):
                 continue
             experience.append(ParsedExperienceEntry(
-                title=e.get("title", ""),
-                company=e.get("company", ""),
-                duration=e.get("duration", ""),
-                highlights=[h for h in e.get("highlights", []) if isinstance(h, str)],
+                title=e.get("title") or "",
+                company=e.get("company") or "",
+                duration=e.get("duration") or "",
+                highlights=[h for h in (e.get("highlights") or []) if isinstance(h, str)],
             ))
 
         education = []
@@ -812,9 +812,9 @@ class EvaluationService:
             if not isinstance(e, dict):
                 continue
             education.append(ParsedEducationEntry(
-                degree=e.get("degree", ""),
-                field=e.get("field", ""),
-                institution=e.get("institution", ""),
+                degree=e.get("degree") or "",
+                field=e.get("field") or "",
+                institution=e.get("institution") or "",
                 year=str(e.get("year", "")) if e.get("year") else None,
             ))
 

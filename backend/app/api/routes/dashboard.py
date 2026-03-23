@@ -63,7 +63,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
 
     # Recommendation distribution
     rec_dist = {}
-    for label in ["strong_hire", "hire", "maybe", "no_hire"]:
+    for label in ["strong_hire", "hire", "consider", "no_hire"]:
         count = (
             await db.execute(
                 select(func.count())
@@ -78,7 +78,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
         f"DASHBOARD.stats | COMPLETE | {elapsed}ms"
         f" | reqs={total_req}(active={active_req})"
         f" | candidates={total_cand}(eval={evaluated},pending={pending},flagged={flagged})"
-        f" | avg_conf={avg_confidence:.3f if avg_confidence else 'N/A'}"
+        f" | avg_conf={f'{avg_confidence:.3f}' if avg_confidence else 'N/A'}"
         f" | dist={rec_dist}"
     )
 

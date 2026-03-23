@@ -180,7 +180,7 @@ class EvaluationResponse(BaseModel):
 
 
 class OverrideRequest(BaseModel):
-    decision: str = Field(..., pattern="^(strong_hire|hire|maybe|no_hire)$")
+    decision: str = Field(..., pattern="^(strong_hire|hire|consider|no_hire)$")
     reason: str = Field(..., min_length=10)
     overridden_by: str = Field(default="recruiter")
 

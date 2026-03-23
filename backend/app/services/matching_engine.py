@@ -397,8 +397,8 @@ def build_suggested_actions(
         else:
             actions.append("Discuss pace of progression and depth of experience in interview")
 
-    # If no_hire/maybe — suggest alternatives
-    if recommendation in ("no_hire", "maybe") and not actions:
+    # If no_hire/consider — suggest alternatives
+    if recommendation in ("no_hire", "consider") and not actions:
         actions.append("Consider for a more junior role or with additional skill development plan")
 
     # If strong_hire → suggest fast-track

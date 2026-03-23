@@ -286,7 +286,7 @@ def build_partial_fallback(
     ]
 
     return EvaluationOutput(
-        recommendation=Recommendation.MAYBE,
+        recommendation=Recommendation.CONSIDER,
         confidence=0.15,
         composite_score=0.0,
         skill_matches=skill_matches,

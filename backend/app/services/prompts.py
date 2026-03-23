@@ -123,7 +123,7 @@ CANDIDATE PROFILE:
 
 Perform a thorough evaluation and return a JSON object with this exact structure:
 {{
-    "recommendation": "strong_hire|hire|maybe|no_hire",
+    "recommendation": "strong_hire|hire|consider|no_hire",
     "confidence": 0.0 to 1.0,
     "composite_score": 0 to 100,
     "skill_matches": [
