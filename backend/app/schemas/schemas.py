@@ -1,11 +1,15 @@
-"""Pydantic schemas for API request/response validation."""
+"""Pydantic schemas for API request/response validation.
+
+Public contract between backend and frontend.
+All evaluation fields are signal-derived (traceable to evidence).
+"""
 
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# ── Job Requisition ──────────────────────────────────────────────────────────
+# ── Job Requisition ───────────────────────────────────────────────────────────
 
 
 class SkillRequirement(BaseModel):
@@ -47,7 +51,7 @@ class JobRequisitionList(BaseModel):
     total: int
 
 
-# ── Candidate ────────────────────────────────────────────────────────────────
+# ── Candidate ─────────────────────────────────────────────────────────────────
 
 
 class CandidateCreate(BaseModel):
@@ -78,37 +82,83 @@ class CandidateDetail(CandidateResponse):
     evaluation: Optional["EvaluationResponse"] = None
 
 
-# ── Evaluation ───────────────────────────────────────────────────────────────
+# ── Evaluation sub-types ──────────────────────────────────────────────────────
 
 
-class SkillMatch(BaseModel):
+class SkillMatchResponse(BaseModel):
+    """A single skill match result (evidence-guaranteed)."""
     skill: str
-    match_level: str  # strong | partial | weak | missing
-    evidence: Optional[str] = None
-    importance: str = "important"
+    match_level: str           # strong | partial | weak | missing
+    evidence: str = ""         # Evidence from resume (empty only for missing)
+    importance: str = "important"  # critical | important | secondary
+    match_reason: str = ""     # Why this match level was assigned
+    skill_score: float = 0.0   # 0–1 contribution score
+
+
+class GapResponse(BaseModel):
+    """A gap with severity classification."""
+    skill: str
+    severity: str = "important"  # critical | important | minor
+    description: str = ""
+    impact: str = ""
+
+
+class StrengthResponse(BaseModel):
+    """A strength with evidence reference."""
+    description: str
+    evidence: str = ""
+    skill: Optional[str] = None
+
+
+class TraceStepResponse(BaseModel):
+    """A decision trace step."""
+    step: int
+    signal: str
+    finding: str
+    impact: str = "neutral"
+    weight: Optional[float] = None
+
+
+class ExperienceAssessmentResponse(BaseModel):
+    meets_requirements: bool = False
+    years_match: str = "unknown"  # exceeds | meets | below | unknown
+    relevance: str = "unknown"
+    evidence: str = ""
+    score: float = 50.0
+    years_candidate: Optional[float] = None
+    years_required_min: Optional[float] = None
+
+
+class EducationAssessmentResponse(BaseModel):
+    meets_requirements: bool = False
+    level_match: str = "unknown"
+    field_relevance: str = "unknown"
+    evidence: str = ""
+    score: float = 50.0
+
+
+# ── Evaluation ────────────────────────────────────────────────────────────────
 
 
 class EvaluationResponse(BaseModel):
     id: str
     candidate_id: str
 
-    # Decision
+    # Decision (deterministic)
     recommendation: str
     confidence: float
     composite_score: Optional[float] = None
 
-    # Signals
-    skill_matches: Optional[list[dict]] = None
-    experience_assessment: Optional[dict] = None
-    education_assessment: Optional[dict] = None
-    strengths: Optional[list[str]] = None
-    gaps: Optional[list[str]] = None
+    # Signals — typed for frontend contract alignment
+    skill_matches: Optional[list[dict]] = None         # SkillMatchResponse dicts
+    experience_assessment: Optional[dict] = None       # ExperienceAssessmentResponse dict
+    education_assessment: Optional[dict] = None        # EducationAssessmentResponse dict
 
-    # Explainability
+    # Explainability — signal-derived
+    strengths: Optional[list[dict]] = None             # StrengthResponse dicts (with evidence)
+    gaps: Optional[list[dict]] = None                  # GapResponse dicts (with severity)
     explanation: Optional[str] = None
-    decision_trace: Optional[list[dict]] = None
-
-    # Actions
+    decision_trace: Optional[list[dict]] = None        # TraceStepResponse dicts
     suggested_actions: Optional[list[str]] = None
 
     # Override
@@ -116,6 +166,9 @@ class EvaluationResponse(BaseModel):
     override_reason: Optional[str] = None
     overridden_by: Optional[str] = None
     overridden_at: Optional[datetime] = None
+
+    # Observability
+    trace_id: Optional[str] = None
 
     # Metadata
     model_used: Optional[str] = None
@@ -137,7 +190,7 @@ class EvaluateCandidateRequest(BaseModel):
     force_reevaluate: bool = False
 
 
-# ── Audit Log ────────────────────────────────────────────────────────────────
+# ── Audit Log ─────────────────────────────────────────────────────────────────
 
 
 class AuditLogResponse(BaseModel):
@@ -152,7 +205,7 @@ class AuditLogResponse(BaseModel):
         from_attributes = True
 
 
-# ── Dashboard / Analytics ────────────────────────────────────────────────────
+# ── Dashboard / Analytics ─────────────────────────────────────────────────────
 
 
 class DashboardStats(BaseModel):

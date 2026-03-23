@@ -17,7 +17,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,40 +50,47 @@ async def evaluate_candidate_stream(
     req_id: str,
     candidate_id: str,
     force: bool = Query(False),
+    x_trace_id: str = Header(None, alias="X-Trace-ID"),
 ):
     """Stream evaluation progress via Server-Sent Events (SSE).
 
-    Opens an SSE connection and pushes events as each pipeline stage completes:
-      - stage:   Progress update (loading, jd_parsing, resume_parsing, evaluating, saving)
-      - cached:  Returning existing evaluation
-      - result:  Final evaluation data
-      - error:   Error during pipeline
-      - done:    Stream complete
+    Opens an SSE connection and pushes events as each pipeline stage completes.
+    All events include a trace_id for cross-pipeline correlation.
 
-    Usage: const es = new EventSource('/api/v1/requisitions/{req_id}/candidates/{id}/evaluate/stream');
+    Stage sequence (signal-driven pipeline):
+      stage: loading → loaded → jd_parsed → resume_parsed →
+             matched → decided → validated → saving
+      event: result, cached, error, done
+
+    Headers:
+      X-Trace-ID — optional caller-provided trace ID (generated if absent)
     """
+    trace_id = x_trace_id or uuid.uuid4().hex[:12]
     logger.info(
         f"SSE.evaluate | Connection opened"
         f" | candidate_id={candidate_id}"
         f" | force={force}"
+        f" | trace_id={trace_id}"
     )
 
     async def event_generator():
         """Async generator that yields SSE-formatted text."""
-        # SSE needs its own DB session since StreamingResponse
-        # runs AFTER the request dependency lifecycle
+        # SSE needs its own DB session since StreamingResponse runs AFTER dependency lifecycle
         async with async_session_factory() as db:
             try:
-                # Verify candidate belongs to requisition
+                # Verify candidate belongs to requisition (idempotency guard)
                 candidate = await db.get(Candidate, candidate_id)
                 if not candidate or candidate.requisition_id != req_id:
-                    yield _format_sse("error", {"message": "Candidate not found"})
-                    yield _format_sse("done", {})
+                    yield _format_sse("error", {"message": "Candidate not found", "trace_id": trace_id})
+                    yield _format_sse("done", {"trace_id": trace_id})
                     return
 
                 if not candidate.resume_text:
-                    yield _format_sse("error", {"message": "No resume available. Upload a resume first."})
-                    yield _format_sse("done", {})
+                    yield _format_sse("error", {
+                        "message": "No resume available. Upload a resume first.",
+                        "trace_id": trace_id,
+                    })
+                    yield _format_sse("done", {"trace_id": trace_id})
                     return
 
                 svc = EvaluationService()
@@ -92,17 +99,22 @@ async def evaluate_candidate_stream(
                     db=db,
                     candidate_id=candidate_id,
                     force_reevaluate=force,
+                    trace_id=trace_id,
                 ):
                     yield _format_sse(event["event"], event["data"])
 
                 await db.commit()
-                logger.info(f"SSE.evaluate | Stream complete | candidate_id={candidate_id}")
+                logger.info(
+                    f"SSE.evaluate | Stream complete"
+                    f" | candidate_id={candidate_id}"
+                    f" | trace_id={trace_id}"
+                )
 
             except Exception as e:
                 logger.error(f"SSE.evaluate | Stream error: {type(e).__name__}: {e}", exc_info=True)
                 await db.rollback()
-                yield _format_sse("error", {"message": str(e)})
-                yield _format_sse("done", {})
+                yield _format_sse("error", {"message": str(e), "trace_id": trace_id})
+                yield _format_sse("done", {"trace_id": trace_id})
 
     return StreamingResponse(
         event_generator(),
@@ -110,7 +122,8 @@ async def evaluate_candidate_stream(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",      # Disable nginx buffering
+            "X-Trace-ID": trace_id,         # Echo trace ID in response headers
         },
     )
 
@@ -242,12 +255,15 @@ async def evaluate_candidate(
     candidate_id: str,
     body: EvaluateCandidateRequest = EvaluateCandidateRequest(),
     db: AsyncSession = Depends(get_db),
+    x_trace_id: str = Header(None, alias="X-Trace-ID"),
 ):
-    """Trigger AI evaluation (synchronous fallback — prefer SSE stream)."""
+    """Trigger evaluation synchronously (prefer SSE stream for real-time progress)."""
+    trace_id = x_trace_id or uuid.uuid4().hex[:12]
     logger.info(
-        f"CANDIDATE.evaluate | Sync API trigger"
+        f"CANDIDATE.evaluate | Sync trigger"
         f" | candidate_id={candidate_id}"
         f" | force={body.force_reevaluate}"
+        f" | trace_id={trace_id}"
     )
 
     candidate = await db.get(Candidate, candidate_id)
@@ -263,10 +279,11 @@ async def evaluate_candidate(
             db=db,
             candidate_id=candidate_id,
             force_reevaluate=body.force_reevaluate,
+            trace_id=trace_id,
         )
         return _to_evaluation_response(evaluation)
     except Exception as e:
-        logger.error(f"CANDIDATE.evaluate | FAILED: {e}", exc_info=True)
+        logger.error(f"CANDIDATE.evaluate | FAILED: {e} | trace_id={trace_id}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
 
 
@@ -419,6 +436,7 @@ def _to_evaluation_response(e: Evaluation) -> EvaluationResponse:
         decision_trace=e.decision_trace, suggested_actions=e.suggested_actions,
         override_decision=e.override_decision, override_reason=e.override_reason,
         overridden_by=e.overridden_by, overridden_at=e.overridden_at,
+        trace_id=e.trace_id,
         model_used=e.model_used, processing_time_ms=e.processing_time_ms,
         created_at=e.created_at,
     )

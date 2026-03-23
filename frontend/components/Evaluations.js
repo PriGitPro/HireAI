@@ -11,30 +11,37 @@ import {
   getAuditLog,
 } from '../lib/api';
 
-// ── Pipeline stage config ───────────────────────────────────────────────
+// ── Pipeline stage config (aligned with signal-driven backend) ──────────────
 
 const PIPELINE_STAGES = [
-  { key: 'loading',        label: 'Loading Data',     icon: '📂' },
-  { key: 'jd_parsing',     label: 'Parsing JD',       icon: '📋' },
-  { key: 'resume_parsing', label: 'Analyzing Resume',  icon: '📄' },
-  { key: 'evaluating',     label: 'AI Evaluation',    icon: '🧠' },
-  { key: 'saving',         label: 'Saving Results',   icon: '💾' },
+  { key: 'loading',        label: 'Loading Data',       icon: '📂' },
+  { key: 'jd_parsing',     label: 'Parsing JD',         icon: '📋' },
+  { key: 'resume_parsing', label: 'Analyzing Resume',   icon: '📄' },
+  { key: 'matching',       label: 'Skill Matching',     icon: '🎯' },
+  { key: 'deciding',       label: 'Decision Engine',    icon: '⚖️' },
+  { key: 'validating',     label: 'Validating Output',  icon: '✔️' },
+  { key: 'saving',         label: 'Saving Results',     icon: '💾' },
 ];
 
 function getStageIndex(stageKey) {
-  // Map completed keys back to their stage
   const map = {
     loading: 0, loaded: 0,
     jd_parsing: 1, jd_parsed: 1,
     resume_parsing: 2, resume_parsed: 2,
-    evaluating: 3, evaluated: 3,
-    saving: 4, saved: 4,
+    matching: 3, matched: 3,
+    deciding: 4, decided: 4,
+    validating: 5, validated: 5, validation_warning: 5,
+    saving: 6, saved: 6,
   };
   return map[stageKey] ?? -1;
 }
 
 function isStageComplete(stageKey) {
-  return ['loaded', 'jd_parsed', 'resume_parsed', 'evaluated', 'saved'].includes(stageKey);
+  return [
+    'loaded', 'jd_parsed', 'resume_parsed',
+    'matched', 'decided', 'validated',
+    'saved',
+  ].includes(stageKey);
 }
 
 
@@ -156,6 +163,22 @@ export default function Evaluations({ requisition, onBack }) {
         }
         progress.currentStage = data.stage;
         progress.message = data.message;
+        // Surface key signal stats from matching stage
+        if (data.stage === 'matched') {
+          progress.matchStats = {
+            strong: data.strong_count,
+            missing: data.missing_count,
+            critical_missing: data.critical_missing,
+            gaps: data.gaps_count,
+          };
+        }
+        if (data.stage === 'decided') {
+          progress.decisionStats = {
+            recommendation: data.recommendation,
+            confidence: data.confidence,
+            score: data.composite_score,
+          };
+        }
         setEvalProgress({
           ...progress,
           completedStages: [...progress.completedStages],
@@ -431,6 +454,25 @@ export default function Evaluations({ requisition, onBack }) {
                     })}
                   </div>
 
+                  {/* Live signal stats (while evaluating) */}
+                  {!evalProgress.done && (evalProgress.matchStats || evalProgress.decisionStats) && (
+                    <div style={{ marginTop: 'var(--space-sm)', display: 'flex', gap: 'var(--space-lg)', fontSize: '0.75rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                      {evalProgress.matchStats && (
+                        <>
+                          <span>Strong: <strong style={{ color: 'var(--success)' }}>{evalProgress.matchStats.strong}</strong></span>
+                          <span>Missing: <strong style={{ color: evalProgress.matchStats.critical_missing > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>{evalProgress.matchStats.missing}</strong></span>
+                          {evalProgress.matchStats.critical_missing > 0 && (
+                            <span style={{ color: 'var(--danger)' }}>⚠ {evalProgress.matchStats.critical_missing} critical missing</span>
+                          )}
+                          <span>Gaps: {evalProgress.matchStats.gaps}</span>
+                        </>
+                      )}
+                      {evalProgress.decisionStats && (
+                        <span>→ {formatRecommendation(evalProgress.decisionStats.recommendation)} ({(evalProgress.decisionStats.confidence * 100).toFixed(0)}% confidence)</span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Error message */}
                   {evalProgress.error && (
                     <div style={{ marginTop: 'var(--space-md)', padding: 'var(--space-sm)', background: 'var(--danger-bg)', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: 'var(--danger)' }}>
@@ -495,9 +537,15 @@ export default function Evaluations({ requisition, onBack }) {
                         </button>
                       </div>
                     </div>
-                    {evaluation.model_used && (
-                      <div style={{ marginTop: 'var(--space-md)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        Model: {evaluation.model_used} · Processed in {evaluation.processing_time_ms}ms
+                    {(evaluation.model_used || evaluation.trace_id) && (
+                      <div style={{ marginTop: 'var(--space-md)', fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+                        {evaluation.model_used && <span>Engine: {evaluation.model_used}</span>}
+                        {evaluation.processing_time_ms && <span>· {evaluation.processing_time_ms}ms</span>}
+                        {evaluation.trace_id && (
+                          <span title="Pipeline trace ID for debugging">
+                            · trace: <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{evaluation.trace_id}</code>
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -540,7 +588,7 @@ export default function Evaluations({ requisition, onBack }) {
                     </div>
                   )}
 
-                  {/* Strengths & Gaps */}
+                  {/* Strengths & Gaps — signal-derived with evidence */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-lg)' }}>
                     {evaluation.strengths && evaluation.strengths.length > 0 && (
                       <div className="card">
@@ -548,11 +596,21 @@ export default function Evaluations({ requisition, onBack }) {
                           💪 Strengths
                         </div>
                         <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                          {evaluation.strengths.map((s, i) => (
-                            <li key={i} style={{ fontSize: '0.85rem', padding: 'var(--space-sm)', background: 'var(--success-bg)', borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)' }}>
-                              ✅ {s}
-                            </li>
-                          ))}
+                          {evaluation.strengths.map((s, i) => {
+                            // Support both legacy string and new {description, evidence, skill} object
+                            const desc = typeof s === 'string' ? s : s.description;
+                            const evidence = typeof s === 'object' ? s.evidence : null;
+                            return (
+                              <li key={i} style={{ fontSize: '0.85rem', padding: 'var(--space-sm)', background: 'var(--success-bg)', borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)' }}>
+                                <div>✅ {desc}</div>
+                                {evidence && (
+                                  <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: 'var(--space-sm)', borderLeft: '2px solid var(--success)' }}>
+                                    {evidence}
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     )}
@@ -562,17 +620,39 @@ export default function Evaluations({ requisition, onBack }) {
                           ⚠️ Gaps & Risks
                         </div>
                         <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                          {evaluation.gaps.map((g, i) => (
-                            <li key={i} style={{ fontSize: '0.85rem', padding: 'var(--space-sm)', background: 'var(--danger-bg)', borderRadius: 'var(--radius-sm)', color: 'var(--text-secondary)' }}>
-                              🔸 {g}
-                            </li>
-                          ))}
+                          {evaluation.gaps.map((g, i) => {
+                            // Support both legacy string and new {skill, severity, description, impact} object
+                            const isObj = typeof g === 'object';
+                            const label = isObj ? g.description || g.skill : g;
+                            const severity = isObj ? g.severity : null;
+                            const impact = isObj ? g.impact : null;
+                            return (
+                              <li key={i} style={{
+                                fontSize: '0.85rem',
+                                padding: 'var(--space-sm)',
+                                background: severity === 'critical' ? 'rgba(239,68,68,0.12)' : 'var(--danger-bg)',
+                                borderRadius: 'var(--radius-sm)',
+                                borderLeft: severity === 'critical' ? '3px solid var(--danger)' : severity === 'important' ? '3px solid var(--warning)' : '3px solid var(--border-subtle)',
+                                color: 'var(--text-secondary)',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' }}>
+                                  {severity === 'critical' && <span title="Critical gap" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CRITICAL</span>}
+                                  {severity === 'important' && <span title="Important gap" style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--warning)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>IMPORTANT</span>}
+                                  {severity === 'minor' && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>MINOR</span>}
+                                  <span>🔸 {label}</span>
+                                </div>
+                                {impact && (
+                                  <div style={{ marginTop: 2, fontSize: '0.75rem', color: 'var(--text-muted)' }}>{impact}</div>
+                                )}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     )}
                   </div>
 
-                  {/* Decision Trace */}
+                  {/* Decision Trace — signal-based steps */}
                   {evaluation.decision_trace && evaluation.decision_trace.length > 0 && (
                     <div className="card">
                       <div className="card-title" style={{ marginBottom: 'var(--space-lg)' }}>🔍 Decision Trace</div>
@@ -581,7 +661,15 @@ export default function Evaluations({ requisition, onBack }) {
                           <div key={i} className="trace-step" style={{ animationDelay: `${i * 0.1}s` }}>
                             <div className={`trace-dot ${step.impact || 'neutral'}`} />
                             <div className="trace-content">
-                              <div className="trace-action">Step {step.step}: {step.action}</div>
+                              {/* Support both old {action} and new {signal} field */}
+                              <div className="trace-action">
+                                Step {step.step}: {step.signal || step.action}
+                                {step.weight != null && (
+                                  <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                                    weight {(step.weight * 100).toFixed(0)}%
+                                  </span>
+                                )}
+                              </div>
                               <div className="trace-finding">{step.finding}</div>
                             </div>
                           </div>

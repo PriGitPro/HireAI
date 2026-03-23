@@ -28,7 +28,7 @@ def _gen_id(prefix: str = "") -> str:
     return f"{prefix}{short}" if prefix else short
 
 
-# ── Job Requisition ──────────────────────────────────────────────────────────
+# ── Job Requisition ───────────────────────────────────────────────────────────
 
 
 class JobRequisition(Base):
@@ -40,11 +40,11 @@ class JobRequisition(Base):
     location = Column(String(128), nullable=True)
     employment_type = Column(String(64), default="Full-time")
     description_raw = Column(Text, nullable=False)
-    description_structured = Column(JSON, nullable=True)  # parsed JD
-    required_skills = Column(JSON, nullable=True)  # [{name, importance, category}]
+    description_structured = Column(JSON, nullable=True)  # ParsedJobDescription (serialized)
+    required_skills = Column(JSON, nullable=True)          # [{name, importance, category}]
     experience_requirements = Column(JSON, nullable=True)
     education_requirements = Column(JSON, nullable=True)
-    status = Column(String(32), default="active")  # active | closed | draft
+    status = Column(String(32), default="active")          # active | closed | draft
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
@@ -52,7 +52,7 @@ class JobRequisition(Base):
     candidates = relationship("Candidate", back_populates="requisition", cascade="all, delete-orphan")
 
 
-# ── Candidate ────────────────────────────────────────────────────────────────
+# ── Candidate ─────────────────────────────────────────────────────────────────
 
 
 class Candidate(Base):
@@ -66,8 +66,8 @@ class Candidate(Base):
     resume_filename = Column(String(512), nullable=True)
     resume_path = Column(String(1024), nullable=True)
     resume_text = Column(Text, nullable=True)
-    resume_structured = Column(JSON, nullable=True)  # parsed resume
-    status = Column(String(32), default="pending")  # pending | evaluated | flagged | hired | rejected
+    resume_structured = Column(JSON, nullable=True)   # ParsedResume (serialized)
+    status = Column(String(32), default="pending")    # pending | evaluated | flagged | hired | rejected
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
@@ -77,7 +77,7 @@ class Candidate(Base):
     audit_logs = relationship("AuditLog", back_populates="candidate", cascade="all, delete-orphan")
 
 
-# ── Evaluation ───────────────────────────────────────────────────────────────
+# ── Evaluation ────────────────────────────────────────────────────────────────
 
 
 class Evaluation(Base):
@@ -86,33 +86,40 @@ class Evaluation(Base):
     id = Column(String, primary_key=True, default=lambda: _gen_id("EVL-"))
     candidate_id = Column(String, ForeignKey("candidates.id"), nullable=False, unique=True)
 
-    # Decision
+    # ── Decision (deterministic) ──────────────────────────────────────────────
     recommendation = Column(String(32), nullable=False)  # strong_hire | hire | maybe | no_hire
-    confidence = Column(Float, nullable=False)  # 0.0 – 1.0
-    composite_score = Column(Float, nullable=True)  # 0 – 100
+    confidence = Column(Float, nullable=False)            # 0.0 – 1.0 (evidence-calibrated)
+    composite_score = Column(Float, nullable=True)        # 0 – 100 (weighted signal sum)
 
-    # Evaluation signals
-    skill_matches = Column(JSON, nullable=True)  # [{skill, match_level, evidence}]
+    # ── Evaluation signals ────────────────────────────────────────────────────
+    # skill_matches: [{skill, match_level, evidence, importance, match_reason, skill_score}]
+    skill_matches = Column(JSON, nullable=True)
     experience_assessment = Column(JSON, nullable=True)
     education_assessment = Column(JSON, nullable=True)
-    strengths = Column(JSON, nullable=True)  # [str]
-    gaps = Column(JSON, nullable=True)  # [str]
 
-    # Explainability
-    explanation = Column(Text, nullable=True)  # human-readable summary
-    decision_trace = Column(JSON, nullable=True)  # ordered reasoning steps
+    # ── Explainability — signal-derived ──────────────────────────────────────
+    # strengths: [{description, evidence, skill}]  — evidence required
+    strengths = Column(JSON, nullable=True)
+    # gaps: [{skill, severity, description, impact}]  — severity classified
+    gaps = Column(JSON, nullable=True)
+    explanation = Column(Text, nullable=True)         # signal-derived, not free-form LLM
+    # decision_trace: [{step, signal, finding, impact, weight}]
+    decision_trace = Column(JSON, nullable=True)
+    suggested_actions = Column(JSON, nullable=True)   # derived from gaps + signals
 
-    # Suggested actions
-    suggested_actions = Column(JSON, nullable=True)  # [str]
-
-    # Human override
+    # ── Human override ────────────────────────────────────────────────────────
     override_decision = Column(String(32), nullable=True)
     override_reason = Column(Text, nullable=True)
     overridden_by = Column(String(256), nullable=True)
     overridden_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Metadata
-    model_used = Column(String(128), nullable=True)
+    # ── Observability & audit ─────────────────────────────────────────────────
+    # debug_metadata: non-UI structured debug info (scores, weights, evidence density)
+    debug_metadata = Column(JSON, nullable=True)
+    trace_id = Column(String(32), nullable=True)      # cross-pipeline trace correlation
+
+    # ── Metadata ──────────────────────────────────────────────────────────────
+    model_used = Column(String(128), nullable=True)   # "signal-engine" for deterministic stages
     processing_time_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -121,7 +128,7 @@ class Evaluation(Base):
     candidate = relationship("Candidate", back_populates="evaluation")
 
 
-# ── Audit Log ────────────────────────────────────────────────────────────────
+# ── Audit Log ─────────────────────────────────────────────────────────────────
 
 
 class AuditLog(Base):
@@ -130,7 +137,7 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(String, ForeignKey("candidates.id"), nullable=True)
     action = Column(String(64), nullable=False)  # evaluate | override | flag | status_change
-    actor = Column(String(256), default="system")  # system | user email
+    actor = Column(String(256), default="system")
     details = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
