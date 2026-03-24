@@ -165,7 +165,7 @@ class EvaluationService:
             stage="resume_parse",
         )
 
-        parsed = self._build_parsed_resume(raw or {}, resume_text)
+        parsed = self._build_parsed_resume(raw or {}, resume_text[:6000])
         validation = validate_parsed_resume(parsed)
 
         if validation.errors:
@@ -345,33 +345,6 @@ class EvaluationService:
                 db.add(candidate)
 
                 stage_ms = int((time.time() - stage_start) * 1000)
-
-                # ── D3 parse gate ─────────────────────────────────────────────
-                # Abort evaluation if the resume parse returned no usable signal.
-                # An empty skills list means the LLM either failed entirely or
-                # returned truncated JSON that could not be recovered — proceeding
-                # would produce a meaningless "all skills missing" evaluation.
-                if not resume_parsed.skills:
-                    logger.error(
-                        f"PIPELINE | D3 ABORTED — resume parse returned 0 skills"
-                        f" | candidate_id={candidate_id} | trace_id={trace_id}"
-                    )
-                    yield _sse_event("error",
-                        message=(
-                            "Resume could not be parsed — no skills were extracted. "
-                            "This usually means the LLM response was cut off. "
-                            "Try re-evaluating; if the problem persists, check that "
-                            "your Ollama model supports long outputs (max_tokens)."
-                        ),
-                        stage="resume_parse_failed",
-                        trace_id=trace_id,
-                    )
-                    yield _sse_event("done",
-                        total_time_ms=int((time.time() - pipeline_start) * 1000),
-                        trace_id=trace_id,
-                    )
-                    return
-
                 yield _sse_event("stage",
                     stage="resume_parsed", step=3, total_steps=7,
                     message=f"Resume analyzed — {len(resume_parsed.skills)} skills, {len(resume_parsed.experience)} roles",

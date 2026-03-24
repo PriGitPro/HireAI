@@ -59,6 +59,10 @@ export default function Evaluations({ requisition, onBack }) {
   const [evalProgress, setEvalProgress] = useState(null); // { candidateId, stages, currentStage, message, error }
   const [showFullTrace, setShowFullTrace] = useState(false);
 
+  // Source documents panel (JD + resume raw text)
+  const [showSourceDocs, setShowSourceDocs] = useState(false);
+  const [sourceDocsTab, setSourceDocsTab] = useState('resume'); // 'resume' | 'jd'
+
   // Upload form state
   const [uploadName, setUploadName] = useState('');
   const [uploadEmail, setUploadEmail] = useState('');
@@ -726,6 +730,110 @@ export default function Evaluations({ requisition, onBack }) {
                   )}
                 </>
               )}
+
+              {/* ── Source Documents ──────────────────────────────────────── */}
+              {(selectedCandidate?.resume_text || requisition?.description_raw) && (
+                <div className="card">
+                  <div
+                    className="card-header"
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setShowSourceDocs(v => !v)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                      <span style={{ fontSize: '1rem' }}>📄</span>
+                      <span className="card-title" style={{ margin: 0 }}>Source Documents</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 4 }}>
+                        {selectedCandidate?.resume_text ? `resume · ${selectedCandidate.resume_text.length.toLocaleString()} chars` : ''}
+                        {selectedCandidate?.resume_text && requisition?.description_raw ? ' · ' : ''}
+                        {requisition?.description_raw ? `JD · ${requisition.description_raw.length.toLocaleString()} chars` : ''}
+                      </span>
+                    </div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {showSourceDocs ? '▲ Hide' : '▼ Show'}
+                    </span>
+                  </div>
+
+                  {showSourceDocs && (
+                    <div style={{ marginTop: 'var(--space-md)' }}>
+                      {/* Tab selector */}
+                      <div style={{ display: 'flex', gap: 'var(--space-xs)', marginBottom: 'var(--space-md)' }}>
+                        {selectedCandidate?.resume_text && (
+                          <button
+                            className={`btn btn-sm ${sourceDocsTab === 'resume' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setSourceDocsTab('resume')}
+                          >
+                            📄 Resume
+                          </button>
+                        )}
+                        {requisition?.description_raw && (
+                          <button
+                            className={`btn btn-sm ${sourceDocsTab === 'jd' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setSourceDocsTab('jd')}
+                          >
+                            📋 Job Description
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      {sourceDocsTab === 'resume' && selectedCandidate?.resume_text && (
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 'var(--space-xs)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Resume text as extracted from uploaded file</span>
+                            <span>{selectedCandidate.resume_text.length.toLocaleString()} characters</span>
+                          </div>
+                          <textarea
+                            readOnly
+                            value={selectedCandidate.resume_text}
+                            style={{
+                              width: '100%',
+                              height: '320px',
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: '0.75rem',
+                              lineHeight: 1.55,
+                              background: 'var(--bg-input)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--text-primary)',
+                              padding: 'var(--space-md)',
+                              resize: 'vertical',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {sourceDocsTab === 'jd' && requisition?.description_raw && (
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 'var(--space-xs)', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Job description as entered at requisition creation</span>
+                            <span>{requisition.description_raw.length.toLocaleString()} characters</span>
+                          </div>
+                          <textarea
+                            readOnly
+                            value={requisition.description_raw}
+                            style={{
+                              width: '100%',
+                              height: '320px',
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: '0.75rem',
+                              lineHeight: 1.55,
+                              background: 'var(--bg-input)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--text-primary)',
+                              padding: 'var(--space-md)',
+                              resize: 'vertical',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
           )}
         </div>

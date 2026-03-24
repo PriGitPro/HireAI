@@ -12,6 +12,7 @@ export default function Requisitions({ onSelectRequisition }) {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [viewingJD, setViewingJD] = useState(null); // req object whose JD is open
   const [formData, setFormData] = useState({
     title: '',
     department: '',
@@ -139,17 +140,123 @@ export default function Requisitions({ onSelectRequisition }) {
                     {new Date(req.created_at).toLocaleDateString()}
                   </td>
                   <td>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={(e) => handleDelete(req.id, e)}
-                    >
-                      🗑
-                    </button>
+                    <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        title="View job description"
+                        onClick={(e) => { e.stopPropagation(); setViewingJD(req); }}
+                      >
+                        📋
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={(e) => handleDelete(req.id, e)}
+                      >
+                        🗑
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* View JD Modal */}
+      {viewingJD && (
+        <div className="modal-overlay" onClick={() => setViewingJD(null)}>
+          <div className="modal" style={{ maxWidth: 720, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 className="modal-title">{viewingJD.title}</h2>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  {[viewingJD.department, viewingJD.location, viewingJD.employment_type].filter(Boolean).join(' · ')}
+                  {' · '}
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{viewingJD.id}</span>
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setViewingJD(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {/* Skills extracted */}
+              {viewingJD.required_skills && viewingJD.required_skills.length > 0 && (
+                <div style={{ marginBottom: 'var(--space-lg)' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-sm)' }}>
+                    Extracted Skills ({viewingJD.required_skills.length})
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-xs)' }}>
+                    {viewingJD.required_skills.map((s, i) => (
+                      <span
+                        key={i}
+                        className={`badge ${s.importance === 'critical' ? 'badge-danger' : s.importance === 'important' ? 'badge-warning' : 'badge-info'}`}
+                        style={{ fontSize: '0.72rem' }}
+                      >
+                        {s.name}
+                        <span style={{ opacity: 0.65, marginLeft: 4 }}>{s.importance === 'critical' ? '●●●' : s.importance === 'important' ? '●●' : '●'}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 'var(--space-xs)' }}>
+                    ●●● critical &nbsp;·&nbsp; ●● important &nbsp;·&nbsp; ● secondary
+                  </div>
+                </div>
+              )}
+
+              {/* Experience & Education summary */}
+              {(viewingJD.experience_requirements || viewingJD.education_requirements) && (
+                <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)' }}>
+                  {viewingJD.experience_requirements?.min_years != null && (
+                    <div style={{ padding: 'var(--space-sm) var(--space-md)', background: 'var(--bg-glass)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Experience: </span>
+                      <strong>{viewingJD.experience_requirements.min_years}+ yrs</strong>
+                    </div>
+                  )}
+                  {viewingJD.education_requirements?.min_level && (
+                    <div style={{ padding: 'var(--space-sm) var(--space-md)', background: 'var(--bg-glass)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Education: </span>
+                      <strong>{viewingJD.education_requirements.min_level}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Raw JD text */}
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-sm)', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Raw Job Description</span>
+                  <span style={{ fontWeight: 400 }}>{viewingJD.description_raw?.length.toLocaleString()} chars</span>
+                </div>
+                <textarea
+                  readOnly
+                  value={viewingJD.description_raw || ''}
+                  style={{
+                    width: '100%',
+                    height: '340px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.75rem',
+                    lineHeight: 1.6,
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--text-primary)',
+                    padding: 'var(--space-md)',
+                    resize: 'vertical',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setViewingJD(null)}>Close</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => { setViewingJD(null); onSelectRequisition(viewingJD); }}
+              >
+                View Candidates →
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

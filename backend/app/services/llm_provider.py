@@ -158,24 +158,41 @@ class LLMResponse:
     def _repair_truncated_json(self, text: str) -> str:
         """Attempt to close a JSON object that was cut off mid-stream.
 
-        Walks the string character-by-character tracking open braces/brackets
-        and open strings, then appends the minimum closing tokens needed to
-        produce valid JSON.  The result may be structurally complete but
-        semantically partial (e.g. the last skill entry is dropped) — callers
-        should treat recovered output as best-effort and log a warning.
+        Iteratively strips incomplete trailing tokens until the tail is clean,
+        then appends the minimum closing tokens to produce structurally valid
+        JSON.  The result may be semantically partial (e.g. the last skill
+        entry is omitted) — callers should treat recovered output as
+        best-effort and log a warning.
+
+        Handles cases such as:
+          "proficiency": "expe          → strip incomplete value → strip orphaned key
+          "name": "LLM applications",  → strip trailing comma
+          {                            → close open brace
         """
         import re
 
-        # 1. Strip trailing commas and partial key-value pairs so we close
-        #    cleanly after the last *complete* value.
         text = text.rstrip()
-        # Remove a trailing incomplete string (open quote never closed)
-        text = re.sub(r',?\s*"[^"]*$', '', text)
-        # Remove a trailing comma after the last complete value
-        text = re.sub(r',\s*$', '', text)
 
-        # 2. Walk the string to count open structures, skipping string content.
-        stack = []     # '{' or '['
+        # Iteratively peel incomplete trailing tokens.
+        # Each regex removes one "layer" of brokenness; we loop until stable.
+        prev = None
+        while prev != text:
+            prev = text
+            # a) Trailing incomplete string — open quote with no closing quote
+            #    e.g.  ..."proficiency": "expe
+            #    e.g.  ..."name": "LLM applicati
+            text = re.sub(r',?\s*"[^"]*$', '', text)
+            # b) Orphaned key with colon but no value
+            #    e.g.  ..."proficiency":
+            #    e.g.  ..."years_experience":
+            text = re.sub(r',?\s*"[^"]+"\s*:\s*$', '', text)
+            # c) Trailing comma after the last complete value
+            text = re.sub(r',\s*$', '', text)
+            text = text.rstrip()
+
+        # Walk the cleaned string to tally unclosed braces/brackets,
+        # skipping over string content so inner delimiters don't count.
+        stack = []       # '{' or '['
         in_string = False
         escape_next = False
 
@@ -198,7 +215,7 @@ class LLMResponse:
             elif ch == ']' and stack and stack[-1] == '[':
                 stack.pop()
 
-        # 3. Close all open structures in reverse order.
+        # Append minimum closing tokens in reverse-stack order.
         closing = ''
         for opener in reversed(stack):
             closing += ']' if opener == '[' else '}'
@@ -253,6 +270,12 @@ class OllamaProvider(LLMProvider):
         effective_temp = temperature or settings.LLM_TEMPERATURE
         effective_max_tokens = max_tokens or settings.LLM_MAX_TOKENS
 
+        # num_ctx sets the total context window (prompt + output tokens).
+        # Ollama's default is 2048 — far too small for large resume JSON.
+        # We set it to max_tokens * 3 (generous headroom for the prompt)
+        # but at least 8192 so a 1500-token prompt still leaves 6500 for output.
+        effective_num_ctx = max(8192, effective_max_tokens * 3)
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -260,6 +283,7 @@ class OllamaProvider(LLMProvider):
             "options": {
                 "temperature": effective_temp,
                 "num_predict": effective_max_tokens,
+                "num_ctx": effective_num_ctx,
             },
         }
 
@@ -270,6 +294,7 @@ class OllamaProvider(LLMProvider):
             f"LLM.request | provider=ollama | model={self.model}"
             f" | prompt_chars={prompt_chars} | system_chars={system_chars}"
             f" | temperature={effective_temp} | max_tokens={effective_max_tokens}"
+            f" | num_ctx={effective_num_ctx}"
         )
         logger.debug(
             f"LLM.request | prompt_preview=\"{prompt[:150].replace(chr(10), ' ')}...\""
