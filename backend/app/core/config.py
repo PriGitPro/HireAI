@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "http://localhost:11434"
     LLM_MODEL: str = "llama3.2"
     LLM_TEMPERATURE: float = 0.1  # Low for deterministic parsing outputs
-    LLM_MAX_TOKENS: int = 4096
+    LLM_MAX_TOKENS: int = 8192
     LLM_TIMEOUT: int = 120       # seconds — passed to asyncio.wait_for
 
     # OpenAI

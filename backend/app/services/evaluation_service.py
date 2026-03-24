@@ -345,6 +345,33 @@ class EvaluationService:
                 db.add(candidate)
 
                 stage_ms = int((time.time() - stage_start) * 1000)
+
+                # ── D3 parse gate ─────────────────────────────────────────────
+                # Abort evaluation if the resume parse returned no usable signal.
+                # An empty skills list means the LLM either failed entirely or
+                # returned truncated JSON that could not be recovered — proceeding
+                # would produce a meaningless "all skills missing" evaluation.
+                if not resume_parsed.skills:
+                    logger.error(
+                        f"PIPELINE | D3 ABORTED — resume parse returned 0 skills"
+                        f" | candidate_id={candidate_id} | trace_id={trace_id}"
+                    )
+                    yield _sse_event("error",
+                        message=(
+                            "Resume could not be parsed — no skills were extracted. "
+                            "This usually means the LLM response was cut off. "
+                            "Try re-evaluating; if the problem persists, check that "
+                            "your Ollama model supports long outputs (max_tokens)."
+                        ),
+                        stage="resume_parse_failed",
+                        trace_id=trace_id,
+                    )
+                    yield _sse_event("done",
+                        total_time_ms=int((time.time() - pipeline_start) * 1000),
+                        trace_id=trace_id,
+                    )
+                    return
+
                 yield _sse_event("stage",
                     stage="resume_parsed", step=3, total_steps=7,
                     message=f"Resume analyzed — {len(resume_parsed.skills)} skills, {len(resume_parsed.experience)} roles",
@@ -356,6 +383,29 @@ class EvaluationService:
                 )
             else:
                 resume_parsed = self._reconstruct_parsed_resume(candidate)
+
+                # Gate applies to cached parses too — re-parse if cache is empty
+                if not resume_parsed.skills:
+                    logger.warning(
+                        f"PIPELINE | D3 cached resume has 0 skills — forcing re-parse"
+                        f" | candidate_id={candidate_id}"
+                    )
+                    candidate.resume_structured = None
+                    db.add(candidate)
+                    yield _sse_event("error",
+                        message=(
+                            "Cached resume parse has no skills. "
+                            "Please re-evaluate to trigger a fresh parse."
+                        ),
+                        stage="resume_parse_failed",
+                        trace_id=trace_id,
+                    )
+                    yield _sse_event("done",
+                        total_time_ms=int((time.time() - pipeline_start) * 1000),
+                        trace_id=trace_id,
+                    )
+                    return
+
                 yield _sse_event("stage",
                     stage="resume_parsed", step=3, total_steps=7,
                     message=f"Resume already analyzed — {len(resume_parsed.skills)} skills cached",
@@ -720,7 +770,7 @@ class EvaluationService:
         for s in raw.get("required_skills", []):
             if not isinstance(s, dict):
                 continue
-            raw_name = s.get("name", "").strip()
+            raw_name = (s.get("name") or "").strip()
             if not raw_name:
                 continue
             canonical = canonicalize(raw_name)
@@ -765,12 +815,12 @@ class EvaluationService:
 
         return ParsedJobDescription(
             title=raw.get("title", "Unknown Role") or "Unknown Role",
-            summary=raw.get("summary", ""),
+            summary=raw.get("summary") or "",
             required_skills=skills,
             experience_requirements=experience_req,
             education_requirements=education_req,
-            key_responsibilities=raw.get("key_responsibilities", []),
-            nice_to_haves=raw.get("nice_to_haves", []),
+            key_responsibilities=raw.get("key_responsibilities") or [],
+            nice_to_haves=raw.get("nice_to_haves") or [],
             parsed_from_llm=True,
             confidence_in_parse=1.0 if skills else 0.3,
         )
@@ -815,7 +865,7 @@ class EvaluationService:
                 degree=e.get("degree") or "",
                 field=e.get("field") or "",
                 institution=e.get("institution") or "",
-                year=str(e.get("year", "")) if e.get("year") else None,
+                year=str(e.get("year") or "") if e.get("year") else None,
             ))
 
         total_years = raw.get("total_experience_years")
@@ -829,13 +879,13 @@ class EvaluationService:
             name=raw.get("name", "Unknown") or "Unknown",
             email=raw.get("email"),
             phone=raw.get("phone"),
-            summary=raw.get("summary", ""),
+            summary=raw.get("summary") or "",
             skills=skills,
             experience=experience,
             total_experience_years=total_years,
             education=education,
-            certifications=raw.get("certifications", []),
-            notable_achievements=raw.get("notable_achievements", []),
+            certifications=raw.get("certifications") or [],
+            notable_achievements=raw.get("notable_achievements") or [],
             parsed_from_llm=True,
         )
 

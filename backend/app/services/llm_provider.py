@@ -102,6 +102,19 @@ class LLMResponse:
                 logger.debug("LLM.parse | Extracted JSON via line-by-line brace tracking")
                 return parsed
 
+        # Strategy 6: Truncated JSON repair
+        # LLM hit max_tokens mid-stream — try to surgically close open structures.
+        raw = text[text.find('{'):] if '{' in text else text
+        if raw:
+            repaired = self._repair_truncated_json(raw)
+            parsed = self._try_json_parse(repaired)
+            if parsed:
+                logger.warning(
+                    "LLM.parse | Recovered partial JSON via truncation repair"
+                    f" | original_len={len(raw)} | repaired_len={len(repaired)}"
+                )
+                return parsed
+
         # All strategies failed
         preview = text[:300].replace("\n", "\\n")
         logger.error(
@@ -141,6 +154,56 @@ class LLMResponse:
         # Remove single-line comments
         fixed = re.sub(r'//.*$', '', fixed, flags=re.MULTILINE)
         return fixed
+
+    def _repair_truncated_json(self, text: str) -> str:
+        """Attempt to close a JSON object that was cut off mid-stream.
+
+        Walks the string character-by-character tracking open braces/brackets
+        and open strings, then appends the minimum closing tokens needed to
+        produce valid JSON.  The result may be structurally complete but
+        semantically partial (e.g. the last skill entry is dropped) — callers
+        should treat recovered output as best-effort and log a warning.
+        """
+        import re
+
+        # 1. Strip trailing commas and partial key-value pairs so we close
+        #    cleanly after the last *complete* value.
+        text = text.rstrip()
+        # Remove a trailing incomplete string (open quote never closed)
+        text = re.sub(r',?\s*"[^"]*$', '', text)
+        # Remove a trailing comma after the last complete value
+        text = re.sub(r',\s*$', '', text)
+
+        # 2. Walk the string to count open structures, skipping string content.
+        stack = []     # '{' or '['
+        in_string = False
+        escape_next = False
+
+        for ch in text:
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch in ('{', '['):
+                stack.append(ch)
+            elif ch == '}' and stack and stack[-1] == '{':
+                stack.pop()
+            elif ch == ']' and stack and stack[-1] == '[':
+                stack.pop()
+
+        # 3. Close all open structures in reverse order.
+        closing = ''
+        for opener in reversed(stack):
+            closing += ']' if opener == '[' else '}'
+
+        return text + closing
 
 
 class LLMProvider(ABC):
