@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HireAI — The Explainable AI Recruiting Copilot</title>
+  <meta name="description" content="HireAI evaluates candidates with semantic understanding and 100% explainability, empowering your hiring team to make faster, fairer decisions." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :root {
+      --bg: #09090b;
+      --bg-card: rgba(255, 255, 255, 0.03);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --subtle: #d4d4d8;
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.4);
+      --accent1: #8b5cf6;
+      --accent2: #06b6d4;
+      --gradient: linear-gradient(135deg, var(--primary), var(--accent1), var(--accent2));
+      --font: 'Outfit', system-ui, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Background noise and glows */
+    .bg-mesh {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background: 
+        radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.08) 0%, transparent 40%);
+    }
+    
+    /* Navigation */
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 100;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 1.25rem 4rem;
+      background: rgba(9, 9, 11, 0.7);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em;
+      background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .nav-links { display: flex; gap: 2.5rem; }
+    .nav-links a { color: var(--subtle); text-decoration: none; font-weight: 500; font-size: 0.95rem; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-btn {
+      background: var(--text); color: var(--bg);
+      padding: 0.6rem 1.2rem; border-radius: 100px;
+      font-weight: 600; font-size: 0.9rem; text-decoration: none;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .nav-btn:hover { transform: translateY(-2px); background: #e4e4e7; }
+
+    /* Core Layout */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+    
+    /* Hero Section */
+    .hero {
+      padding: 12rem 2rem 6rem;
+      text-align: center;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 0.5rem 1rem; border-radius: 100px;
+      background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);
+      color: #60a5fa; font-weight: 600; font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.8s ease-out;
+    }
+    .hero h1 {
+      font-size: clamp(3rem, 7vw, 5rem);
+      font-weight: 800; line-height: 1.05; letter-spacing: -0.03em;
+      margin-bottom: 1.5rem; max-width: 900px;
+      animation: fadeUp 0.8s 0.1s ease-out both;
+    }
+    .gradient-text { background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p {
+      font-size: 1.25rem; color: var(--muted); max-width: 650px;
+      margin-bottom: 3rem; line-height: 1.6;
+      animation: fadeUp 0.8s 0.2s ease-out both;
+    }
+    .hero-actions { display: flex; gap: 1rem; animation: fadeUp 0.8s 0.3s ease-out both; }
+    
+    .btn-main {
+      background: var(--gradient); color: white;
+      padding: 1rem 2.5rem; border-radius: 100px; border: none;
+      font-size: 1.05rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; box-shadow: 0 10px 25px -5px var(--primary-glow);
+      transition: transform 0.2s, box-shadow 0.2s; text-decoration: none;
+    }
+    .btn-main:hover { transform: translateY(-2px); box-shadow: 0 15px 35px -5px var(--primary-glow); }
+    .btn-sec {
+      background: transparent; color: var(--text);
+      padding: 1rem 2.5rem; border-radius: 100px; border: 1px solid var(--border);
+      font-size: 1.05rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background 0.2s; text-decoration: none;
+    }
+    .btn-sec:hover { background: rgba(255,255,255,0.05); }
+
+    /* AI Value Props */
+    .feature-section { padding: 6rem 0; }
+    .feature-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem;
+      margin-top: 4rem;
+    }
+    .feature-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 2.5rem; border-radius: 20px;
+      transition: transform 0.3s, border-color 0.3s;
+    }
+    .feature-card:hover { transform: translateY(-5px); border-color: rgba(59, 130, 246, 0.4); }
+    .f-icon { width: 56px; height: 56px; border-radius: 14px; background: rgba(59, 130, 246, 0.1); color: #60a5fa; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 1.5rem; }
+    .feature-card h3 { font-size: 1.4rem; font-weight: 700; margin-bottom: 1rem; color: var(--text); }
+    .feature-card p { color: var(--muted); font-size: 1rem; line-height: 1.7; }
+
+    /* The Explainability Showcase (Scorecard UI) */
+    .showcase-block {
+      background: rgba(255, 255, 255, 0.02);
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      padding: 7rem 0; margin: 4rem 0;
+    }
+    .showcase-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: center; }
+    .showcase-content h2 { font-size: 2.8rem; font-weight: 800; margin-bottom: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; }
+    .showcase-content p { color: var(--muted); font-size: 1.15rem; margin-bottom: 2rem; line-height: 1.7; }
+    
+    .check-list { list-style: none; display: flex; flex-direction: column; gap: 1rem; }
+    .check-list li { display: flex; align-items: flex-start; gap: 1rem; color: var(--subtle); font-size: 1.05rem; }
+    .check-list svg { color: var(--primary); flex-shrink: 0; margin-top: 3px; }
+
+    /* UI Component from previously implemented design */
+    .score-card-ui {
+      background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; 
+      padding: 2.5rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .sc-header { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.1em; color: var(--text); margin-bottom: 2.5rem; }
+    .sc-row { margin-bottom: 1.75rem; }
+    .sc-label-val { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.5rem; }
+    .sc-label { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text); }
+    .sc-val { font-size: 1rem; font-weight: 800; color: #fff; }
+    .sc-bar-bg { position: relative; height: 10px; background: rgba(255,255,255,0.06); border-radius: 100px; margin-bottom: 0.5rem; }
+    .sc-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--primary); border-radius: 100px; transition: width 1.5s cubic-bezier(0.16, 1, 0.3, 1); }
+    .sc-benchmark { position: absolute; left: 60%; top: -3px; bottom: -3px; width: 2px; background: #94a3b8; border-radius: 2px; }
+    .sc-meta { font-size: 0.8rem; color: var(--muted); font-family: system-ui; }
+
+    /* Final CTA / Footer */
+    .cta-banner {
+      margin: 8rem auto 4rem; max-width: 1000px;
+      background: var(--gradient); border-radius: 24px;
+      padding: 5rem 3rem; text-align: center;
+      box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.3);
+    }
+    .cta-banner h2 { font-size: 2.5rem; font-weight: 800; color: white; margin-bottom: 1rem; }
+    .cta-banner p { font-size: 1.15rem; color: rgba(255,255,255,0.9); margin-bottom: 2.5rem; max-width: 600px; margin-inline: auto; }
+    .cta-btn {
+      background: white; color: var(--primary);
+      padding: 1rem 2.5rem; border-radius: 100px; font-weight: 700; font-size: 1.05rem;
+      text-decoration: none; display: inline-block; transition: transform 0.2s;
+    }
+    .cta-btn:hover { transform: scale(1.05); }
+
+    footer {
+      border-top: 1px solid var(--border); padding: 3rem 4rem;
+      display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 0.9rem;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .reveal { opacity: 0; transform: translateY(30px); transition: all 0.8s ease-out; }
+    .reveal.active { opacity: 1; transform: translateY(0); }
+
+    @media(max-width: 900px) {
+      .showcase-grid { grid-template-columns: 1fr; gap: 3rem; }
+      .feature-grid { grid-template-columns: 1fr; }
+      nav { padding: 1rem 2rem; }
+      .nav-links { display: none; }
+      .hero { padding-top: 8rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-mesh"></div>
+
+  <!-- Navbar -->
+  <nav>
+    <div class="logo">HireAI</div>
+    <div class="nav-links">
+      <a href="#features">How it works</a>
+      <a href="#explainability">Explainability</a>
+      <a href="#trust">Bias & Trust</a>
+    </div>
+    <a href="#demo" class="nav-btn">Book Demo</a>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge">✨ Redefining the Recruiting Copilot</div>
+    <h1>Hire the top 1% faster with <span class="gradient-text">Explainable AI</span></h1>
+    <p>HireAI reads resumes thoughtfully, exactly like a senior engineering leader would. Move beyond rigid keyword matching into true semantic understanding—backed by 100% transparent scoring.</p>
+    <div class="hero-actions">
+      <a href="#demo" class="btn-main">Get started today</a>
+      <a href="#features" class="btn-sec">Explore features</a>
+    </div>
+  </section>
+
+  <!-- Feature Grid -->
+  <section id="features" class="feature-section container">
+    <div style="text-align: center; max-width: 700px; margin: 0 auto;">
+      <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Recruitment intelligence,<br>without the black box.</h2>
+      <p style="color: var(--muted); font-size: 1.15rem;">HireAI is built specifically to address the failures of legacy ATS systems. We don't just search for words; we understand capabilities.</p>
+    </div>
+    
+    <div class="feature-grid reveal">
+      <div class="feature-card">
+        <div class="f-icon">🧠</div>
+        <h3>Reads between the lines</h3>
+        <p>If your job requires "AI Pipeline Architecture", HireAI knows that a candidate working with "LangChain" and "Vector Databases" is a perfect fit, even if the exact phrase isn't used.</p>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">⚖️</div>
+        <h3>Standardized & Unbiased</h3>
+        <p>Every candidate is evaluated against the exact same rubric, every single time. Mitigate human fatigue and unconscious bias while ensuring the fairest possible talent review.</p>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">✋</div>
+        <h3>Human in the Loop</h3>
+        <p>AI should assist, not dictate. Recruiters can view exactly how the AI arrived at a decision, verify the evidence directly from the resume, and override recommendations with a single click.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Explainability Showcase -->
+  <section id="explainability" class="showcase-block">
+    <div class="container showcase-grid">
+      <div class="showcase-content reveal">
+        <h2>Complete visibility into every decision.</h2>
+        <p>Hiring managers need to trust the system. That's why every single evaluation generates a detailed, evidence-backed scorecard. No more guessing why an application was rejected.</p>
+        
+        <ul class="check-list">
+          <li>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <div><strong>Granular Weighting:</strong> See exactly how technical skills, experience, and academic background factored into the final score.</div>
+          </li>
+          <li>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <div><strong>Benchmarking:</strong> Visual indicators show exactly where a candidate stands compared to your minimum hiring thresholds.</div>
+          </li>
+          <li>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <div><strong>Evidence Density:</strong> The AI points directly to the sentence in the resume that proved the capability.</div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Live Scorecard Demo -->
+      <div class="score-card-ui reveal" style="transition-delay: 0.2s;">
+        <div class="sc-header">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></svg>
+          EVALUATION SCORECARD
+        </div>
+
+        <div class="sc-row">
+          <div class="sc-label-val"><div class="sc-label">TECHNICAL SKILLS</div><div class="sc-val">75%</div></div>
+          <div class="sc-bar-bg"><div class="sc-bar-fill" style="width:0" data-width="75%"></div><div class="sc-benchmark"></div></div>
+          <div class="sc-meta">Benchmark 60% · Weight 40%</div>
+        </div>
+
+        <div class="sc-row">
+          <div class="sc-label-val"><div class="sc-label">EXPERIENCE FIT</div><div class="sc-val">100%</div></div>
+          <div class="sc-bar-bg"><div class="sc-bar-fill" style="width:0" data-width="100%"></div><div class="sc-benchmark"></div></div>
+          <div class="sc-meta">Benchmark 60% · Weight 30%</div>
+        </div>
+
+        <div class="sc-row">
+          <div class="sc-label-val"><div class="sc-label">CAPABILITY ALIGNMENT</div><div class="sc-val">46%</div></div>
+          <div class="sc-bar-bg"><div class="sc-bar-fill" style="width:0" data-width="46%"></div><div class="sc-benchmark"></div></div>
+          <div class="sc-meta">Benchmark 60% · Weight 15% · Needs Review</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(255,255,255,0.1); padding-top:1.5rem; margin-top:0.5rem;">
+          <div>
+            <div style="font-size:0.75rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">Composite Score</div>
+            <div style="font-size:2rem; font-weight:900; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">79.0</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:0.75rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Recommendation</div>
+            <div style="background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); padding:0.4rem 1rem; border-radius:100px; font-size:0.85rem; font-weight:700;">✓ STRONG HIRE</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="container" id="demo">
+    <div class="cta-banner reveal">
+      <h2>Ready to transform your hiring workflow?</h2>
+      <p>Give your recruiting team the power of explainable, intelligent insight. Stop scanning for keywords and start hiring the best talent.</p>
+      <a href="#" class="cta-btn">Schedule a Live Demo</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="logo">HireAI</div>
+    <div>&copy; 2026 HireAI Inc. All rights reserved.</div>
+  </footer>
+
+  <script>
+    // Reveal animations on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('active');
+          // Animate the bars when the scorecard comes into view
+          const bars = entry.target.querySelectorAll('.sc-bar-fill');
+          bars.forEach(bar => {
+            bar.style.width = bar.getAttribute('data-width');
+          });
+        }
+      });
+    }, { threshold: 0.2 });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

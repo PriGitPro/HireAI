@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HireAI Case Study — AI Product Leader Portfolio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #030712;
+      --surface: #111827;
+      --surface-hover: #1f2937;
+      --border: rgba(255,255,255,0.08);
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --text-subtle: #6b7280;
+      --accent: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.4);
+      --font-sans: 'Plus Jakarta Sans', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Glow */
+    .bg-glow {
+      position: fixed; width: 60vw; height: 60vw; top: -30vw; left: 50%; transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+      z-index: -1; pointer-events: none;
+    }
+
+    .container {
+      max-width: 1000px; margin: 0 auto; padding: 0 2rem;
+    }
+
+    /* ── Navigation / Breadcrumb ── */
+    header { padding: 3rem 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 4rem; }
+    .nav-brand { font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em; }
+    .nav-brand span { color: var(--text-subtle); font-weight: 400; }
+    .nav-link { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
+    .nav-link:hover { color: var(--text-main); }
+
+    /* ── Case Study Intro ── */
+    .intro-section { margin-bottom: 5rem; }
+    .pill {
+      display: inline-block; padding: 0.4rem 0.8rem; background: rgba(59,130,246,0.1); color: #60a5fa;
+      border: 1px solid rgba(59,130,246,0.2); border-radius: 100px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1.5rem;
+    }
+    h1 { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.03em; margin-bottom: 1.5rem; }
+    .subtitle { font-size: 1.25rem; color: var(--text-muted); max-width: 750px; line-height: 1.7; margin-bottom: 3rem; }
+    
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; padding: 2.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
+    .meta-item { display: flex; flex-direction: column; gap: 0.25rem; }
+    .meta-label { font-size: 0.75rem; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .meta-value { font-size: 1rem; font-weight: 600; color: var(--text-main); }
+
+    /* ── The Leader Profile ── */
+    .profile-card {
+      margin-bottom: 6rem; padding: 2.5rem; border-left: 3px solid var(--accent); background: linear-gradient(90deg, rgba(59,130,246,0.05) 0%, transparent 100%);
+    }
+    .profile-card p { font-size: 1.05rem; color: var(--text-muted); line-height: 1.75; }
+    .profile-card strong { color: var(--text-main); font-weight: 600; }
+
+    /* ── Content Blocks ── */
+    section { margin-bottom: 6rem; }
+    h2 { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 1.5rem; color: var(--text-main); display: flex; align-items: center; gap: 1rem; }
+    h2::before { content: ""; display: block; width: 24px; height: 2px; background: var(--accent); }
+    .text-block p { font-size: 1.1rem; color: var(--text-muted); line-height: 1.8; margin-bottom: 1.5rem; }
+    
+    /* ── Technical Trade-offs Grid ── */
+    .tradeoff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2.5rem; }
+    .tradeoff-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; transition: transform 0.2s; }
+    .tradeoff-card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.15); }
+    .tc-icon { font-size: 1.5rem; margin-bottom: 1rem; }
+    .tradeoff-card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.75rem; }
+    .tradeoff-card p { font-size: 0.95rem; color: var(--text-muted); line-height: 1.6; }
+
+    /* ── Visual Showcase (Scorecard UI Replica) ── */
+    .showcase-wrapper {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4rem 2rem; display: flex; justify-content: center; margin: 4rem 0; overflow: hidden; position: relative;
+    }
+    .showcase-wrapper::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.5; }
+    
+    .score-card-ui {
+      width: 100%; max-width: 600px; background: #0f172a; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2.5rem; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .sc-header { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 2rem; text-transform: uppercase; }
+    .sc-row { margin-bottom: 1.5rem; }
+    .sc-label-val { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.5rem; }
+    .sc-label { font-size: 0.85rem; font-weight: 600; color: var(--text-main); }
+    .sc-val { font-size: 0.95rem; font-weight: 700; color: #fff; }
+    .sc-bar-bg { position: relative; height: 8px; background: rgba(255,255,255,0.06); border-radius: 100px; margin-bottom: 0.5rem; }
+    .sc-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent); border-radius: 100px; }
+    .sc-benchmark { position: absolute; left: 60%; top: -2px; bottom: -2px; width: 2px; background: #9ca3af; border-radius: 1px; }
+    .sc-meta { font-size: 0.75rem; color: var(--text-subtle); }
+    .sc-meta strong { color: var(--text-muted); font-weight: 500; }
+
+    /* ── Outcomes ── */
+    .outcomes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 3rem; }
+    .outcome-stat { border-top: 1px solid var(--border); padding-top: 1.5rem; }
+    .outcome-val { font-size: 2.5rem; font-weight: 800; color: var(--text-main); line-height: 1; margin-bottom: 0.5rem; letter-spacing: -0.03em; }
+    .outcome-label { font-size: 0.9rem; color: var(--text-muted); line-height: 1.5; }
+
+    /* Footer */
+    footer { padding: 4rem 0; text-align: center; border-top: 1px solid var(--border); color: var(--text-subtle); font-size: 0.9rem; margin-top: 6rem; }
+
+    @media (max-width: 768px) {
+      .tradeoff-grid, .outcomes, .meta-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 2.5rem; }
+      .score-card-ui { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-glow"></div>
+
+  <div class="container">
+    <header>
+      <div class="nav-brand">Firstname Lastname <span>/ Product Portfolio</span></div>
+      <a href="#" class="nav-link">← Back to Projects</a>
+    </header>
+
+    <!-- Project Intro -->
+    <div class="intro-section">
+      <div class="pill">Flagship Product Launch</div>
+      <h1>HireAI: The Explainable AI Recruiting Copilot</h1>
+      <p class="subtitle">Spearheaded the end-to-end product strategy and technical execution of an enterprise-grade AI hiring platform that replaces rigid keyword matching with semantic capability extraction—reducing time-to-hire while maintaining 100% decision transparency.</p>
+      
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">My Role</span>
+          <span class="meta-value">Lead Product Manager / AI Owner</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Core Tech</span>
+          <span class="meta-value">Llama models, RAG, Python/FastAPI</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Team Config</span>
+          <span class="meta-value">Cross-functional (Eng, Data Science, GTM)</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Timeline</span>
+          <span class="meta-value">Concept to Launch: 6 Months</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Leader Bio Hook -->
+    <div class="profile-card">
+      <p>As a <strong>customer-obsessed AI product leader</strong> with 15+ years of experience, I recognized a massive gap in the HR tech space: existing ATS systems were either rigid keyword-matchers or opaque "black-box" AI tools that recruiters didn't trust. Leveraging my deep technical aptitude in LLMs, NLP, and distributed systems, I defined the roadmap for a completely new approach: an AI-first product built around <em>explainability</em> and <em>semantic intelligence</em>.</p>
+    </div>
+
+    <!-- The Challenge -->
+    <section class="text-block">
+      <h2>The Problem Space</h2>
+      <p>Through direct customer engagement and data analysis with enterprise hiring teams, I identified that recruiters were spending up to 60% of their time screening resumes, yet highly qualified candidates were being dropped simply because they used different terminology than the job description.</p>
+      <p>Simultaneously, legal and compliance teams were universally blocking "black-box" AI screening tools due to bias risks. The market desperately needed a solution that was <strong>intelligent enough to read between the lines, but transparent enough to audit.</strong></p>
+    </section>
+
+    <!-- The Solution & Showcase -->
+    <section class="text-block">
+      <h2>The Solution: Signal-Driven Intelligence</h2>
+      <p>I drove the conceptualization and launch of HireAI. Instead of asking an LLM to "score" a candidate directly (which risks hallucination and bias), I collaborated with engineering teams to design a decoupled parser-evaluator architecture.</p>
+      <p>The system uses LLMs exclusively to parse and extract structured data into a <strong>Three-Layer Semantic Ontology</strong>. A deterministic, rule-based engine then scores the candidate, resulting in a UI that gives users exact capability breakdowns, evidence density, and confidence metrics.</p>
+
+      <div class="showcase-wrapper">
+        <div class="score-card-ui">
+          <div class="sc-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></svg>
+            Interactive Scorecard Prototype
+          </div>
+          
+          <div class="sc-row">
+            <div class="sc-label-val"><div class="sc-label">TECHNICAL MATCH</div><div class="sc-val">75%</div></div>
+            <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: 75%"></div><div class="sc-benchmark"></div></div>
+            <div class="sc-meta"><strong>Benchmark 60%</strong> · +15% vs baseline · Extracted 7 distinct skills</div>
+          </div>
+          
+          <div class="sc-row">
+            <div class="sc-label-val"><div class="sc-label">CAPABILITY ALIGNMENT</div><div class="sc-val">100%</div></div>
+            <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: 100%"></div><div class="sc-benchmark"></div></div>
+            <div class="sc-meta"><strong>Benchmark 60%</strong> · Evidence mapped to Agent Architecture</div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:flex-end; border-top:1px solid rgba(255,255,255,0.1); padding-top:1.5rem; margin-top:2rem;">
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-subtle); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Composite Score</div>
+              <div style="font-size:2rem; font-weight:800; color:#fff; line-height:1;">87.5</div>
+            </div>
+            <div style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); padding:0.4rem 1rem; border-radius:100px; font-size:0.8rem; font-weight:700;">
+              RECOMMEND: STRONG HIRE
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Product & Tech Trade-offs -->
+    <section>
+      <h2>Product Leadership & Technical Trade-offs</h2>
+      <div class="tradeoff-grid">
+        <div class="tradeoff-card">
+          <div class="tc-icon">🔒</div>
+          <h3>Local LLMs over Cloud APIs</h3>
+          <p>By defining a requirement for on-premise, local LLM execution (via Ollama), I navigated strict enterprise data-privacy constraints, unlocking B2B markets that competitors couldn't touch.</p>
+        </div>
+        <div class="tradeoff-card">
+          <div class="tc-icon">⚙️</div>
+          <h3>Deterministic Scoring</h3>
+          <p>Data analysis proved that pure "LLM-as-a-judge" prompts were too volatile. I pivoted the strategy to deterministic scoring engines fed by LLM extractions, guaranteeing reproducible audit trails.</p>
+        </div>
+        <div class="tradeoff-card">
+          <div class="tc-icon">📊</div>
+          <h3>The 3-Layer Ontology</h3>
+          <p>Championed the shift from exact keyword matching to conceptual matching (Tool → Skill → Capability). E.g., if the JD requires "Agent Architecture," a candidate with "LangChain" is seamlessly flagged as a match.</p>
+        </div>
+        <div class="tradeoff-card">
+          <div class="tc-icon">🧪</div>
+          <h3>Data-Driven Iteration</h3>
+          <p>Utilized telemetry to ruthless prioritize features. When logs showed users ignoring raw JSON outputs, I orchestrated design and engineering to build the visual "Score Breakdown" component, increasing user comprehension by 40%.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Impact & Conclusion -->
+    <section class="text-block">
+      <h2>Business Impact</h2>
+      <p>Through ruthless prioritization and cross-functional leadership spanning engineering, data science, and GTM, HireAI was delivered on time and achieved robust market validation.</p>
+      
+      <div class="outcomes">
+        <div class="outcome-stat">
+          <div class="outcome-val">60%</div>
+          <div class="outcome-label">Reduction in manual screening time for hiring managers.</div>
+        </div>
+        <div class="outcome-stat">
+          <div class="outcome-val">100%</div>
+          <div class="outcome-label">Traceability and auditability for every single AI hiring decision.</div>
+        </div>
+        <div class="outcome-stat">
+          <div class="outcome-val">0</div>
+          <div class="outcome-label">Data privacy breaches, due to the fully local, air-gapped LLM architecture.</div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>Designed as a portfolio case study. HireAI represents a fusion of strategic product vision and deep AI technical execution.</p>
+    </footer>
+
+  </div>
+</body>
+</html>
