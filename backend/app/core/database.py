@@ -14,6 +14,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,  # We handle our own logging
     future=True,
+    pool_pre_ping=True,  # Verify connections before use
 )
 
 async_session_factory = async_sessionmaker(

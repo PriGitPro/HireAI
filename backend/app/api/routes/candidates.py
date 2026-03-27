@@ -49,18 +49,17 @@ router = APIRouter(prefix="/requisitions/{req_id}/candidates", tags=["Candidates
 async def evaluate_candidate_stream(
     req_id: str,
     candidate_id: str,
-    force: bool = Query(False),
     x_trace_id: str = Header(None, alias="X-Trace-ID"),
 ):
     """Stream evaluation progress via Server-Sent Events (SSE).
 
     Opens an SSE connection and pushes events as each pipeline stage completes.
-    All events include a trace_id for cross-pipeline correlation.
+    Always runs a fresh evaluation — no caching.
 
     Stage sequence (signal-driven pipeline):
       stage: loading → loaded → jd_parsed → resume_parsed →
              matched → decided → validated → saving
-      event: result, cached, error, done
+      event: result, error, done
 
     Headers:
       X-Trace-ID — optional caller-provided trace ID (generated if absent)
@@ -69,7 +68,6 @@ async def evaluate_candidate_stream(
     logger.info(
         f"SSE.evaluate | Connection opened"
         f" | candidate_id={candidate_id}"
-        f" | force={force}"
         f" | trace_id={trace_id}"
     )
 
@@ -98,7 +96,6 @@ async def evaluate_candidate_stream(
                 async for event in svc.evaluate_candidate_streaming(
                     db=db,
                     candidate_id=candidate_id,
-                    force_reevaluate=force,
                     trace_id=trace_id,
                 ):
                     yield _format_sse(event["event"], event["data"])

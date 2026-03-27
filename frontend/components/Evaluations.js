@@ -133,7 +133,7 @@ export default function Evaluations({ requisition, onBack }) {
       // Auto-start SSE evaluation for the new candidate
       if (newCandidate?.id) {
         handleSelectCandidate(newCandidate);
-        startEvaluation(newCandidate.id, false);
+        startEvaluation(newCandidate.id);
       }
     } catch (err) {
       alert(`Upload failed: ${err.message}`);
@@ -144,7 +144,7 @@ export default function Evaluations({ requisition, onBack }) {
 
   // ── SSE Evaluation ──────────────────────────────────────────────────
 
-  function startEvaluation(candidateId, force = false) {
+  function startEvaluation(candidateId) {
     // Close any existing stream
     evalStream?.close();
 
@@ -190,27 +190,15 @@ export default function Evaluations({ requisition, onBack }) {
         });
       },
 
-      onCached: async (data) => {
-        progress.message = 'Using cached evaluation';
-        progress.done = true;
-        setEvalProgress({
-          ...progress,
-          completedStages: [0, 1, 2, 3, 4],
-        });
-        // Refresh candidate detail
-        const detail = await getCandidate(requisition.id, candidateId);
-        setSelectedCandidate(detail);
-        await loadCandidates();
-        setTimeout(() => setEvalProgress(null), 2000);
-      },
-
       onResult: async (data) => {
-        progress.completedStages = new Set([0, 1, 2, 3, 4]);
+        // Mark all 7 stages complete (indices 0–6)
+        const allStages = PIPELINE_STAGES.map((_, i) => i);
+        progress.completedStages = new Set(allStages);
         progress.message = `Evaluation complete — ${formatRecommendation(data.evaluation?.recommendation)}`;
         progress.done = true;
         setEvalProgress({
           ...progress,
-          completedStages: [0, 1, 2, 3, 4],
+          completedStages: allStages,
         });
         // Refresh candidate detail to show evaluation
         const detail = await getCandidate(requisition.id, candidateId);
@@ -235,7 +223,7 @@ export default function Evaluations({ requisition, onBack }) {
         // Stream ended
         setEvalStream(null);
       },
-    }, force);
+    });
 
     setEvalStream(es);
   }
@@ -391,7 +379,7 @@ export default function Evaluations({ requisition, onBack }) {
                     )}
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={() => startEvaluation(selectedCandidate.id, !!evaluation)}
+                      onClick={() => startEvaluation(selectedCandidate.id)}
                       disabled={isEvaluating}
                     >
                       {isEvaluating ? (
@@ -567,6 +555,122 @@ export default function Evaluations({ requisition, onBack }) {
                     )}
                   </div>
 
+                  {/* ── AI Decision Reasoning ─ 3 quick insights ─── */}
+                  {evaluation.skill_matches && (() => {
+                    const sms = evaluation.skill_matches || [];
+                    const total   = sms.length;
+                    const strong  = sms.filter(s => s.match_level === 'strong').length;
+                    const partial = sms.filter(s => s.match_level === 'partial').length;
+                    const missing = sms.filter(s => s.match_level === 'missing').length;
+                    const criticalMissing = sms.filter(s => s.match_level === 'missing' && s.importance === 'critical').length;
+                    const matchPct = total ? Math.round(((strong + partial) / total) * 100) : 0;
+
+                    const gaps = Array.isArray(evaluation.gaps) ? evaluation.gaps : [];
+                    const topGap = gaps.find(g => (g.severity || '') === 'critical') || gaps[0];
+                    const topGapLabel = topGap
+                      ? (typeof topGap === 'string' ? topGap : topGap.skill || topGap.description || '')
+                      : null;
+
+                    const exp = evaluation.experience_assessment || {};
+                    const expMeets = exp.meets_requirements;
+                    const expYears = exp.years_candidate;
+                    const expMatch = exp.years_match;
+
+                    // Build 3 insight bullets
+                    const insights = [];
+
+                    // Bullet 1 — Skill signal
+                    if (total > 0) {
+                      const skillOk = matchPct >= 60;
+                      insights.push({
+                        icon: skillOk ? '✅' : criticalMissing > 0 ? '🚫' : '⚠️',
+                        color: skillOk ? 'var(--strong-hire)' : criticalMissing > 0 ? 'var(--no-hire)' : '#ca8a04',
+                        text: criticalMissing > 0
+                          ? `${criticalMissing} critical skill${criticalMissing > 1 ? 's' : ''} missing — significant gap for this role`
+                          : skillOk
+                            ? `Skill coverage at ${matchPct}% (${strong + partial} of ${total}) — strong alignment with requirements`
+                            : `Skill coverage at ${matchPct}% — ${missing} requirement${missing !== 1 ? 's' : ''} unmatched`,
+                      });
+                    }
+
+                    // Bullet 2 — Experience signal
+                    if (exp && (expMeets !== undefined || expYears !== undefined)) {
+                      const expOk = expMeets || expMatch === 'exceeds' || expMatch === 'meets';
+                      insights.push({
+                        icon: expOk ? '✅' : '⚠️',
+                        color: expOk ? 'var(--strong-hire)' : '#ca8a04',
+                        text: expOk
+                          ? `Experience ${expMatch === 'exceeds' ? 'exceeds' : 'meets'} requirements${expYears ? ` (${expYears} yrs)` : ''}`
+                          : `Experience${expYears ? ` (${expYears} yrs)` : ''} below requirements — may need additional validation`,
+                      });
+                    }
+
+                    // Bullet 3 — Key gap / strength signal
+                    if (topGapLabel) {
+                      const isCritGap = topGap && (topGap.severity === 'critical');
+                      insights.push({
+                        icon: isCritGap ? '🚫' : '⚠️',
+                        color: isCritGap ? 'var(--no-hire)' : '#ca8a04',
+                        text: `${isCritGap ? 'Critical gap' : 'Notable gap'}: ${topGapLabel}${topGap?.impact ? ' — ' + topGap.impact : ''}`,
+                      });
+                    } else if (evaluation.strengths && evaluation.strengths.length > 0) {
+                      const s = evaluation.strengths[0];
+                      const label = typeof s === 'string' ? s : s.description || '';
+                      insights.push({
+                        icon: '💡',
+                        color: 'var(--consider)',
+                        text: `Key strength: ${label}`,
+                      });
+                    }
+
+                    if (insights.length === 0) return null;
+
+                    return (
+                      <div style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: 'var(--space-lg)',
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}>
+                        {/* Subtle accent stripe */}
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                          background: 'linear-gradient(180deg, var(--accent) 0%, var(--accent-secondary, var(--accent)) 100%)',
+                          borderRadius: '3px 0 0 3px',
+                        }} />
+                        <div style={{ marginLeft: 8 }}>
+                          <div style={{
+                            fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em',
+                            textTransform: 'uppercase', color: 'var(--text-muted)',
+                            marginBottom: 'var(--space-sm)',
+                          }}>
+                            🤖 AI Decision Reasoning
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {insights.map((ins, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                <span style={{ fontSize: '0.85rem', flexShrink: 0, marginTop: 1 }}>{ins.icon}</span>
+                                <span style={{
+                                  fontSize: '0.82rem',
+                                  lineHeight: 1.55,
+                                  color: 'var(--text-secondary)',
+                                }}>
+                                  <span style={{ color: ins.color, fontWeight: 600 }}>
+                                    {ins.text.split(':')[0]}
+                                    {ins.text.includes(':') ? ':' : ''}
+                                  </span>
+                                  {ins.text.includes(':') ? ins.text.slice(ins.text.indexOf(':') + 1) : ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Explanation */}
                   {evaluation.explanation && (
                     <div className="card">
@@ -577,33 +681,214 @@ export default function Evaluations({ requisition, onBack }) {
                     </div>
                   )}
 
+                  {/* ── Capability Overview ─────────────────────────── */}
+                  {evaluation.capability_assessments && evaluation.capability_assessments.length > 0 && (() => {
+                    const caps = evaluation.capability_assessments;
+                    const levelColor = {
+                      strong:  'var(--strong-hire)',
+                      partial: 'var(--consider)',
+                      weak:    '#ca8a04',
+                      missing: 'var(--no-hire)',
+                    };
+                    const levelLabel = {
+                      strong:  'Strong',
+                      partial: 'Partial',
+                      weak:    'Weak',
+                      missing: 'Not Met',
+                    };
+                    const levelBg = {
+                      strong:  'var(--strong-hire-bg)',
+                      partial: 'var(--consider-bg)',
+                      weak:    'rgba(202,138,4,0.12)',
+                      missing: 'var(--no-hire-bg)',
+                    };
+                    return (
+                      <div className="card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-md)' }}>
+                          <div className="card-title">📊 Capability Overview</div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {caps.filter(c => c.level === 'strong').length} of {caps.length} areas covered
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {caps.map((cap, i) => {
+                            const color = levelColor[cap.level] || 'var(--text-muted)';
+                            const fillPct = cap.total_skills > 0
+                              ? Math.round((cap.matched_skills / cap.total_skills) * 100)
+                              : 0;
+                            return (
+                              <div key={i}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                                  {/* Importance dot */}
+                                  <span style={{
+                                    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                                    background: cap.importance === 'critical' ? 'var(--no-hire)'
+                                              : cap.importance === 'important' ? 'var(--consider)'
+                                              : 'var(--text-muted)',
+                                  }} title={`${cap.importance} capability`} />
+
+                                  {/* Capability name */}
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', flex: 1, lineHeight: 1.3 }}>
+                                    {cap.capability}
+                                  </span>
+
+                                  {/* Matched count */}
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                    {cap.matched_skills}/{cap.total_skills}
+                                  </span>
+
+                                  {/* Level badge */}
+                                  <span style={{
+                                    fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px',
+                                    borderRadius: 'var(--radius-full)',
+                                    background: levelBg[cap.level],
+                                    color: color,
+                                    whiteSpace: 'nowrap',
+                                  }}>
+                                    {levelLabel[cap.level] || cap.level}
+                                  </span>
+                                </div>
+
+                                {/* Mini progress bar */}
+                                <div style={{
+                                  display: 'flex', height: 5, borderRadius: 'var(--radius-full)',
+                                  background: 'var(--bg-input)', overflow: 'hidden',
+                                  border: '1px solid var(--border)',
+                                }}>
+                                  <div style={{
+                                    width: `${fillPct}%`,
+                                    background: color,
+                                    borderRadius: 'var(--radius-full)',
+                                    transition: 'width 0.5s ease',
+                                  }} />
+                                </div>
+
+                                {/* Key evidence (truncated) */}
+                                {cap.key_evidence && (
+                                  <div style={{
+                                    fontSize: '0.7rem', color: 'var(--text-muted)',
+                                    marginTop: 4, lineHeight: 1.4,
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                  }} title={cap.key_evidence}>
+                                    💬 {cap.key_evidence}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Legend */}
+                        <div style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-sm)', borderTop: '1px solid var(--border)', display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+                          {[['critical','var(--no-hire)'],['important','var(--consider)'],['secondary','var(--text-muted)']].map(([lbl,clr]) => (
+                            <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: clr, display: 'inline-block' }} />
+                              {lbl.charAt(0).toUpperCase() + lbl.slice(1)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Skill Matches */}
-                  {evaluation.skill_matches && evaluation.skill_matches.length > 0 && (
-                    <div className="card">
-                      <div className="card-title" style={{ marginBottom: 'var(--space-md)' }}>🎯 Skill Assessment</div>
-                      <div className="skill-grid">
-                        {evaluation.skill_matches.map((sm, i) => (
-                          <div
-                            key={i}
-                            className={`skill-pill ${sm.match_level}`}
-                            title={sm.evidence || 'No evidence provided'}
-                          >
-                            {sm.importance === 'critical' && '⚠️ '}
-                            {sm.skill}
-                            <span style={{ opacity: 0.7, marginLeft: 2 }}>
-                              {sm.match_level === 'strong' ? '✓' : sm.match_level === 'partial' ? '◐' : sm.match_level === 'weak' ? '○' : '✗'}
+                  {evaluation.skill_matches && evaluation.skill_matches.length > 0 && (() => {
+                    const sm = evaluation.skill_matches;
+                    const total = sm.length;
+                    const exact    = sm.filter(s => s.match_level === 'strong').length;
+                    const semantic = sm.filter(s => s.match_level === 'partial').length;
+                    const weak     = sm.filter(s => s.match_level === 'weak').length;
+                    const missing  = sm.filter(s => s.match_level === 'missing').length;
+                    const matched  = exact + semantic + weak;
+                    const pctExact    = total ? (exact    / total) * 100 : 0;
+                    const pctSemantic = total ? (semantic / total) * 100 : 0;
+                    const pctWeak     = total ? (weak     / total) * 100 : 0;
+                    const pctMissing  = total ? (missing  / total) * 100 : 0;
+
+                    return (
+                      <div className="card">
+                        <div className="card-title" style={{ marginBottom: 'var(--space-md)' }}>🎯 Skill Assessment</div>
+
+                        {/* ── Coverage Bar ────────────────────────────── */}
+                        <div style={{ marginBottom: 'var(--space-lg)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                              Skill Coverage
+                            </span>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                              <strong style={{ color: 'var(--text-primary)' }}>{matched}</strong> / {total} requirements matched
                             </span>
                           </div>
-                        ))}
+
+                          {/* Segmented bar */}
+                          <div style={{
+                            display: 'flex',
+                            height: 10,
+                            borderRadius: 'var(--radius-full)',
+                            overflow: 'hidden',
+                            background: 'var(--bg-input)',
+                            border: '1px solid var(--border)',
+                          }}>
+                            {pctExact > 0 && (
+                              <div style={{ width: `${pctExact}%`, background: 'var(--strong-hire)', transition: 'width 0.6s ease' }} title={`Exact: ${exact}`} />
+                            )}
+                            {pctSemantic > 0 && (
+                              <div style={{ width: `${pctSemantic}%`, background: 'var(--consider)', transition: 'width 0.6s ease' }} title={`Semantic: ${semantic}`} />
+                            )}
+                            {pctWeak > 0 && (
+                              <div style={{ width: `${pctWeak}%`, background: '#ca8a04', transition: 'width 0.6s ease' }} title={`Weak: ${weak}`} />
+                            )}
+                            {pctMissing > 0 && (
+                              <div style={{ width: `${pctMissing}%`, background: 'var(--no-hire)', opacity: 0.35, transition: 'width 0.6s ease' }} title={`Missing: ${missing}`} />
+                            )}
+                          </div>
+
+                          {/* Legend */}
+                          <div style={{ display: 'flex', gap: 'var(--space-md)', marginTop: 8, flexWrap: 'wrap' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--strong-hire)', display: 'inline-block', flexShrink: 0 }} />
+                              Exact <strong style={{ color: 'var(--text-secondary)' }}>{exact}</strong>
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--consider)', display: 'inline-block', flexShrink: 0 }} />
+                              Semantic <strong style={{ color: 'var(--text-secondary)' }}>{semantic}</strong>
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 2, background: '#ca8a04', display: 'inline-block', flexShrink: 0 }} />
+                              Weak <strong style={{ color: 'var(--text-secondary)' }}>{weak}</strong>
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--no-hire)', opacity: 0.5, display: 'inline-block', flexShrink: 0 }} />
+                              Missing <strong style={{ color: missing > 0 ? 'var(--no-hire)' : 'var(--text-secondary)' }}>{missing}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* ── Skill Chips ───────────────────────────── */}
+                        <div className="skill-grid">
+                          {evaluation.skill_matches.map((sm, i) => (
+                            <div
+                              key={i}
+                              className={`skill-pill ${sm.match_level}`}
+                              title={sm.evidence || 'No evidence provided'}
+                            >
+                              {sm.importance === 'critical' && '⚠️ '}
+                              {sm.skill}
+                              <span style={{ opacity: 0.7, marginLeft: 2 }}>
+                                {sm.match_level === 'strong' ? '✓' : sm.match_level === 'partial' ? '◐' : sm.match_level === 'weak' ? '○' : '✗'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: 'var(--space-md)', display: 'flex', gap: 'var(--space-lg)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          <span>✓ Strong</span>
+                          <span>◐ Partial/Semantic</span>
+                          <span>○ Weak</span>
+                          <span>✗ Missing</span>
+                        </div>
                       </div>
-                      <div style={{ marginTop: 'var(--space-md)', display: 'flex', gap: 'var(--space-lg)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        <span>✓ Strong</span>
-                        <span>◐ Partial</span>
-                        <span>○ Weak</span>
-                        <span>✗ Missing</span>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
+
 
                   {/* Strengths & Gaps — signal-derived with evidence */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-lg)' }}>

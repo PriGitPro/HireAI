@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import AuditLog, Candidate, Evaluation, JobRequisition
 from app.services.decision_agent import DecisionAgent
+from app.services.semantic_enricher import SemanticEnricher
 from app.services.evaluation_validator import (
     build_partial_fallback,
     enforce_evidence_guarantees,
@@ -42,6 +43,7 @@ from app.services.evaluation_validator import (
 )
 from app.services.llm_provider import LLMResponse, get_llm_provider
 from app.services.matching_engine import (
+    assess_capabilities,
     assess_education,
     assess_experience,
     build_gaps,
@@ -49,6 +51,7 @@ from app.services.matching_engine import (
     build_suggested_actions,
     match_skills,
 )
+from app.services.audit_schema import ENGINE_VERSION, build_evaluation_audit
 from app.services.ontology import canonicalize, get_parent_category
 from app.services.pipeline_schemas import (
     EducationAssessment,
@@ -72,11 +75,6 @@ from app.services.prompts import (
 
 logger = logging.getLogger("hireai.evaluation")
 
-# ── In-process cache (parsed JDs and resumes are expensive LLM calls) ─────────
-# Keyed by (content_hash,) — avoids redundant LLM calls for same input.
-_JD_CACHE: dict[str, ParsedJobDescription] = {}
-_RESUME_CACHE: dict[str, ParsedResume] = {}
-
 # Max LLM retries
 _LLM_MAX_RETRIES = 2
 _LLM_RETRY_DELAY_S = 1.5
@@ -87,35 +85,22 @@ def _sse_event(event: str, **data) -> dict:
     return {"event": event, "data": data}
 
 
-def _content_hash(text: str) -> str:
-    """Short hash for caching."""
-    import hashlib
-    return hashlib.md5(text.encode()).hexdigest()[:16]
-
-
 class EvaluationService:
     """Orchestrates the signal-driven candidate evaluation pipeline."""
 
     def __init__(self):
         self.llm = get_llm_provider()
         self._decision_agent = DecisionAgent()
-        logger.debug("EvaluationService instantiated (signal-driven mode)")
+        self._semantic_enricher = SemanticEnricher(self.llm)
+        logger.debug("EvaluationService instantiated (hybrid matching mode)")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def parse_job_description(self, jd_text: str) -> ParsedJobDescription:
         """Parse a raw JD → validated ParsedJobDescription.
 
-        Uses LLM for extraction, then:
-          - Canonicalizes all skill names via ontology
-          - Validates the output
-          - Caches the result (avoids redundant LLM calls)
+        Calls the LLM every time — no caching.
         """
-        cache_key = _content_hash(jd_text)
-        if cache_key in _JD_CACHE:
-            logger.info("PIPELINE.jd_parse | Cache HIT — skipping LLM call")
-            return _JD_CACHE[cache_key]
-
         logger.info(f"PIPELINE.jd_parse | START | jd_length={len(jd_text)} chars")
         start = time.time()
 
@@ -141,22 +126,13 @@ class EvaluationService:
             f" | {ms}ms"
         )
 
-        _JD_CACHE[cache_key] = parsed
         return parsed
 
     async def parse_resume(self, resume_text: str) -> ParsedResume:
         """Parse a raw resume → validated ParsedResume.
 
-        Uses LLM for extraction, then:
-          - Canonicalizes all skill names via ontology
-          - Validates the output
-          - Caches the result
+        Calls the LLM every time — no caching.
         """
-        cache_key = _content_hash(resume_text)
-        if cache_key in _RESUME_CACHE:
-            logger.info("PIPELINE.resume_parse | Cache HIT — skipping LLM call")
-            return _RESUME_CACHE[cache_key]
-
         logger.info(f"PIPELINE.resume_parse | START | resume_length={len(resume_text)} chars")
         start = time.time()
 
@@ -183,7 +159,6 @@ class EvaluationService:
             f" | {ms}ms"
         )
 
-        _RESUME_CACHE[cache_key] = parsed
         return parsed
 
     # ── SSE Streaming Evaluation ──────────────────────────────────────────────
@@ -192,10 +167,11 @@ class EvaluationService:
         self,
         db: AsyncSession,
         candidate_id: str,
-        force_reevaluate: bool = False,
         trace_id: Optional[str] = None,
     ) -> AsyncGenerator[dict, None]:
         """Run the full evaluation pipeline, yielding SSE events at each stage.
+
+        Always runs fresh — no caching at any layer.
 
         Stage map:
           stage=loading       → D1 loading
@@ -208,20 +184,19 @@ class EvaluationService:
           stage=matched       → D4 complete
           stage=deciding      → D5 (rule-based decision)
           stage=saving        → D7 (persist)
-          event=cached        → returning cached evaluation
           event=result        → final result
           event=error         → pipeline error
           event=done          → stream complete
         """
         trace_id = trace_id or uuid.uuid4().hex[:12]
         pipeline_start = time.time()
+        stage_times_ms: dict[str, int] = {}  # per-stage timing for audit record
 
         logger.info("=" * 60)
         logger.info(
             f"PIPELINE | ▶ STREAMING EVALUATION"
             f" | candidate_id={candidate_id}"
             f" | trace_id={trace_id}"
-            f" | force={force_reevaluate}"
         )
         logger.info("=" * 60)
 
@@ -259,65 +234,47 @@ class EvaluationService:
                 trace_id=trace_id,
             )
 
-            # ── Check cache ───────────────────────────────────────────────────
-            if not force_reevaluate:
-                existing = await db.execute(
-                    select(Evaluation).where(Evaluation.candidate_id == candidate_id)
-                )
-                existing_eval = existing.scalar_one_or_none()
-                if existing_eval:
-                    logger.info(f"PIPELINE | Returning CACHED evaluation | trace_id={trace_id}")
-                    yield _sse_event("cached",
-                        message="Returning existing evaluation",
-                        evaluation=self._evaluation_to_dict(existing_eval),
-                        trace_id=trace_id,
-                    )
-                    yield _sse_event("done",
-                        total_time_ms=int((time.time() - pipeline_start) * 1000),
-                        trace_id=trace_id,
-                    )
-                    return
-
             # ── D2: Parse JD ──────────────────────────────────────────────────
-            if not requisition.description_structured or force_reevaluate:
-                yield _sse_event("stage",
-                    stage="jd_parsing", step=2, total_steps=7,
-                    message="Parsing job description...",
+            yield _sse_event("stage",
+                stage="jd_parsing", step=2, total_steps=7,
+                message="Parsing job description...",
+                trace_id=trace_id,
+            )
+            stage_start = time.time()
+            jd_parsed = await self.parse_job_description(requisition.description_raw)
+
+            # Gate: LLM returned no skills — surface the error immediately
+            if not jd_parsed.required_skills:
+                logger.error(
+                    f"PIPELINE | D2 JD parse returned 0 skills"
+                    f" | requisition_id={requisition.id}"
+                    f" | trace_id={trace_id}"
+                )
+                yield _sse_event("error",
+                    message=(
+                        "Job description parsing returned no skills. "
+                        "The job description may be too short, unstructured, or the LLM timed out. "
+                        "Try re-evaluating, or check the job description text."
+                    ),
+                    stage="jd_parse_failed",
                     trace_id=trace_id,
                 )
-                stage_start = time.time()
-                jd_parsed = await self.parse_job_description(requisition.description_raw)
-
-                # Persist structured JD back to requisition
-                requisition.description_structured = json.loads(
-                    jd_parsed.model_dump_json()
-                )
-                requisition.required_skills = [
-                    {"name": s.canonical_name, "importance": s.importance.value, "category": s.category.value}
-                    for s in jd_parsed.required_skills
-                ]
-                requisition.experience_requirements = jd_parsed.experience_requirements.model_dump()
-                requisition.education_requirements = jd_parsed.education_requirements.model_dump()
-                db.add(requisition)
-
-                stage_ms = int((time.time() - stage_start) * 1000)
-                yield _sse_event("stage",
-                    stage="jd_parsed", step=2, total_steps=7,
-                    message=f"JD parsed — {len(jd_parsed.required_skills)} skills identified",
-                    skills_count=len(jd_parsed.required_skills),
-                    critical_count=len(jd_parsed.critical_skills),
-                    duration_ms=stage_ms,
+                yield _sse_event("done",
+                    total_time_ms=int((time.time() - pipeline_start) * 1000),
                     trace_id=trace_id,
                 )
-            else:
-                # Reconstruct from cached DB data
-                jd_parsed = self._reconstruct_parsed_jd(requisition)
-                yield _sse_event("stage",
-                    stage="jd_parsed", step=2, total_steps=7,
-                    message=f"JD already parsed — {len(jd_parsed.required_skills)} skills cached",
-                    skills_count=len(jd_parsed.required_skills),
-                    cached=True, trace_id=trace_id,
-                )
+                return
+
+            stage_ms = int((time.time() - stage_start) * 1000)
+            stage_times_ms["d2_jd_parse_ms"] = stage_ms
+            yield _sse_event("stage",
+                stage="jd_parsed", step=2, total_steps=7,
+                message=f"JD parsed — {len(jd_parsed.required_skills)} skills identified",
+                skills_count=len(jd_parsed.required_skills),
+                critical_count=len(jd_parsed.critical_skills),
+                duration_ms=stage_ms,
+                trace_id=trace_id,
+            )
 
             # ── D3: Parse Resume ──────────────────────────────────────────────
             if not candidate.resume_text:
@@ -327,64 +284,30 @@ class EvaluationService:
                 )
                 return
 
-            if not candidate.resume_structured or force_reevaluate:
-                yield _sse_event("stage",
-                    stage="resume_parsing", step=3, total_steps=7,
-                    message="Analyzing resume...",
-                    trace_id=trace_id,
-                )
-                stage_start = time.time()
-                resume_parsed = await self.parse_resume(candidate.resume_text)
+            yield _sse_event("stage",
+                stage="resume_parsing", step=3, total_steps=7,
+                message="Analyzing resume...",
+                trace_id=trace_id,
+            )
+            stage_start = time.time()
+            resume_parsed = await self.parse_resume(candidate.resume_text)
 
-                # Persist structured resume
-                candidate.resume_structured = json.loads(resume_parsed.model_dump_json())
-                if not candidate.email and resume_parsed.email:
-                    candidate.email = resume_parsed.email
-                if not candidate.phone and resume_parsed.phone:
-                    candidate.phone = resume_parsed.phone
-                db.add(candidate)
+            if not candidate.email and resume_parsed.email:
+                candidate.email = resume_parsed.email
+            if not candidate.phone and resume_parsed.phone:
+                candidate.phone = resume_parsed.phone
+            db.add(candidate)
 
-                stage_ms = int((time.time() - stage_start) * 1000)
-                yield _sse_event("stage",
-                    stage="resume_parsed", step=3, total_steps=7,
-                    message=f"Resume analyzed — {len(resume_parsed.skills)} skills, {len(resume_parsed.experience)} roles",
-                    skills_count=len(resume_parsed.skills),
-                    experience_count=len(resume_parsed.experience),
-                    skills_with_evidence=sum(1 for s in resume_parsed.skills if s.evidence.strip()),
-                    duration_ms=stage_ms,
-                    trace_id=trace_id,
-                )
-            else:
-                resume_parsed = self._reconstruct_parsed_resume(candidate)
-
-                # Gate applies to cached parses too — re-parse if cache is empty
-                if not resume_parsed.skills:
-                    logger.warning(
-                        f"PIPELINE | D3 cached resume has 0 skills — forcing re-parse"
-                        f" | candidate_id={candidate_id}"
-                    )
-                    candidate.resume_structured = None
-                    db.add(candidate)
-                    yield _sse_event("error",
-                        message=(
-                            "Cached resume parse has no skills. "
-                            "Please re-evaluate to trigger a fresh parse."
-                        ),
-                        stage="resume_parse_failed",
-                        trace_id=trace_id,
-                    )
-                    yield _sse_event("done",
-                        total_time_ms=int((time.time() - pipeline_start) * 1000),
-                        trace_id=trace_id,
-                    )
-                    return
-
-                yield _sse_event("stage",
-                    stage="resume_parsed", step=3, total_steps=7,
-                    message=f"Resume already analyzed — {len(resume_parsed.skills)} skills cached",
-                    skills_count=len(resume_parsed.skills),
-                    cached=True, trace_id=trace_id,
-                )
+            stage_ms = int((time.time() - stage_start) * 1000)
+            stage_times_ms["d3_resume_parse_ms"] = stage_ms
+            yield _sse_event("stage",
+                message=f"Resume analyzed — {len(resume_parsed.skills)} skills, {len(resume_parsed.experience)} roles",
+                skills_count=len(resume_parsed.skills),
+                experience_count=len(resume_parsed.experience),
+                skills_with_evidence=sum(1 for s in resume_parsed.skills if s.evidence.strip()),
+                duration_ms=stage_ms,
+                trace_id=trace_id,
+            )
 
             # ── D4: Deterministic Matching ────────────────────────────────────
             yield _sse_event("stage",
@@ -395,25 +318,63 @@ class EvaluationService:
             stage_start = time.time()
 
             skill_matches_raw = match_skills(jd_parsed, resume_parsed)
-            skill_matches, enforce_result = enforce_evidence_guarantees(skill_matches_raw)
+            skill_matches_enforced, enforce_result = enforce_evidence_guarantees(skill_matches_raw)
+
+            # ── D4b: Semantic Enrichment (Hybrid) ─────────────────────────────
+            # For uncertain matches (WEAK/MISSING on critical/important skills),
+            # ask the LLM to validate semantic equivalence the rule engine can miss.
+            # STRONG matches are never re-evaluated — rule engine is authoritative.
+            if settings.ENABLE_SEMANTIC_ENRICHMENT:
+                yield _sse_event("stage",
+                    stage="enriching", step=4, total_steps=7,
+                    message="Running semantic enrichment for uncertain matches...",
+                    trace_id=trace_id,
+                )
+                try:
+                    skill_matches = await self._semantic_enricher.enrich(
+                        skill_matches_enforced, resume_parsed
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"PIPELINE | D4b enrichment failed: {type(e).__name__}: {e}"
+                        " — continuing with rule-based results"
+                    )
+                    skill_matches = skill_matches_enforced
+            else:
+                skill_matches = skill_matches_enforced
+
             experience = assess_experience(jd_parsed, resume_parsed)
             education = assess_education(jd_parsed, resume_parsed)
             gaps = build_gaps(skill_matches, experience)
             strengths = build_strengths(skill_matches, experience, resume_parsed)
 
+            # D4c: Capability layer — additive, no LLM, non-breaking
+            capability_assessments = assess_capabilities(jd_parsed, skill_matches)
+            logger.info(
+                f"PIPELINE | D4c capability layer"
+                f" | capabilities={len(capability_assessments)}"
+                f" | strong={sum(1 for c in capability_assessments if c.level.value == 'strong')}"
+                f" | missing={sum(1 for c in capability_assessments if c.level.value == 'missing')}"
+            )
+
             stage_ms = int((time.time() - stage_start) * 1000)
+            stage_times_ms["d4_matching_ms"] = stage_ms
             strong_count = sum(1 for sm in skill_matches if sm.match_level.value == "strong")
             missing_count = sum(1 for sm in skill_matches if sm.match_level.value == "missing")
             critical_missing = sum(
                 1 for sm in skill_matches
                 if sm.match_level.value == "missing" and sm.importance.value == "critical"
             )
+            enriched_count = sum(
+                1 for sm in skill_matches if "llm_enriched" in (sm.match_reason or "")
+            )
 
             logger.info(
-                f"PIPELINE | D4 matching done"
+                f"PIPELINE | D4+D4b matching done"
                 f" | strong={strong_count}/{len(skill_matches)}"
                 f" | missing={missing_count}"
                 f" | critical_missing={critical_missing}"
+                f" | llm_enriched={enriched_count}"
                 f" | evidence_mutations={len(enforce_result.mutations)}"
                 f" | {stage_ms}ms"
             )
@@ -424,6 +385,7 @@ class EvaluationService:
                 strong_count=strong_count,
                 missing_count=missing_count,
                 critical_missing=critical_missing,
+                enriched_count=enriched_count,
                 gaps_count=len(gaps),
                 duration_ms=stage_ms,
                 trace_id=trace_id,
@@ -449,12 +411,14 @@ class EvaluationService:
                 suggested_actions=suggested_actions,
                 trace_id=trace_id,
             )
+            eval_output.capability_assessments = capability_assessments
             # Re-derive actions now that we have the recommendation
             eval_output.suggested_actions = build_suggested_actions(
                 gaps, skill_matches, eval_output.recommendation.value
             )
 
             stage_ms = int((time.time() - stage_start) * 1000)
+            stage_times_ms["d5_decision_ms"] = stage_ms
             logger.info(
                 f"PIPELINE | D5 decision"
                 f" | recommendation={eval_output.recommendation.value}"
@@ -503,6 +467,7 @@ class EvaluationService:
 
             # ── D7: Persist ───────────────────────────────────────────────────
             processing_time = int((time.time() - pipeline_start) * 1000)
+            stage_times_ms["d7_persist_start_ms"] = int((time.time() - pipeline_start) * 1000)
             yield _sse_event("stage",
                 stage="saving", step=7, total_steps=7,
                 message="Saving evaluation results...",
@@ -520,6 +485,7 @@ class EvaluationService:
                 await db.flush()
 
             db_dict = eval_output.to_db_dict()
+            model_name = getattr(self.llm, "model", None) or "signal-engine"
 
             evaluation = Evaluation(
                 candidate_id=candidate_id,
@@ -536,7 +502,7 @@ class EvaluationService:
                 suggested_actions=eval_output.suggested_actions,
                 debug_metadata=db_dict["debug_metadata"],
                 trace_id=trace_id,
-                model_used=getattr(self.llm, "model", None) or "signal-engine",
+                model_used=model_name,
                 processing_time_ms=processing_time,
             )
             db.add(evaluation)
@@ -548,22 +514,23 @@ class EvaluationService:
                 candidate.status = "evaluated"
             db.add(candidate)
 
-            # Audit log
+            # Audit log — full structured schema (see audit_schema.py)
+            audit_details = build_evaluation_audit(
+                eval_output=eval_output,
+                candidate=candidate,
+                requisition=requisition,
+                processing_time_ms=processing_time,
+                stage_times_ms=stage_times_ms,
+                validation_errors=final_validation.errors,
+                evidence_mutations=enforce_result.mutations,
+                trace_id=trace_id,
+            )
+            audit_details["system"]["model_name"] = model_name
             audit = AuditLog(
                 candidate_id=candidate_id,
                 action="evaluate",
                 actor="system",
-                details={
-                    "recommendation": db_dict["recommendation"],
-                    "confidence": eval_output.confidence,
-                    "composite_score": eval_output.composite_score,
-                    "trace_id": trace_id,
-                    "critical_gaps": [g["skill"] for g in db_dict["gaps"] if g["severity"] == "critical"],
-                    "evidence_density": eval_output.evidence_density,
-                    "processing_time_ms": processing_time,
-                    "validation_errors": final_validation.errors,
-                    "evidence_mutations": enforce_result.mutations,
-                },
+                details=audit_details,
             )
             db.add(audit)
 
@@ -605,15 +572,14 @@ class EvaluationService:
         self,
         db: AsyncSession,
         candidate_id: str,
-        force_reevaluate: bool = False,
         trace_id: Optional[str] = None,
     ) -> Evaluation:
         """Non-streaming evaluation — collects all events and returns final Evaluation."""
         result = None
         async for event in self.evaluate_candidate_streaming(
-            db, candidate_id, force_reevaluate, trace_id
+            db, candidate_id, trace_id
         ):
-            if event["event"] in ("result", "cached"):
+            if event["event"] == "result":
                 eval_q = await db.execute(
                     select(Evaluation).where(Evaluation.candidate_id == candidate_id)
                 )
@@ -673,6 +639,7 @@ class EvaluationService:
 
     def _evaluation_to_dict(self, e: Evaluation) -> dict:
         """Convert an Evaluation ORM object to a JSON-safe dict for SSE/API."""
+        debug = e.debug_metadata or {}
         return {
             "id": e.id,
             "candidate_id": e.candidate_id,
@@ -687,6 +654,8 @@ class EvaluationService:
             "explanation": e.explanation,
             "decision_trace": e.decision_trace,
             "suggested_actions": e.suggested_actions,
+            # Capability layer — stored in debug_metadata, surfaced here
+            "capability_assessments": debug.get("capability_assessments", []),
             "override_decision": e.override_decision,
             "override_reason": e.override_reason,
             "overridden_by": e.overridden_by,
@@ -704,16 +673,28 @@ class EvaluationService:
         prompt: str,
         stage: str,
     ) -> Optional[dict]:
-        """Call LLM with retry + timeout. Returns parsed JSON or None."""
+        """Call LLM with retry + timeout, requesting JSON output.
+
+        Passes force_json=True so Ollama constrains sampling to valid JSON
+        tokens (format="json").  Falls back gracefully for other providers.
+
+        Returns parsed JSON dict, or None if all attempts fail.
+        NOTE: uses `is not None` to accept empty dicts {} as valid responses.
+        """
         last_error = None
         for attempt in range(1, _LLM_MAX_RETRIES + 1):
             try:
                 response: LLMResponse = await asyncio.wait_for(
-                    self.llm.generate(prompt=prompt, system_prompt=SYSTEM_PROMPT),
+                    self.llm.generate(
+                        prompt=prompt,
+                        system_prompt=SYSTEM_PROMPT,
+                        force_json=True,   # Ollama: format="json"; OpenAI: response_format
+                    ),
                     timeout=settings.LLM_TIMEOUT,
                 )
                 parsed = response.as_json()
-                if parsed:
+                # Use `is not None` — {} is valid JSON and must not be rejected
+                if parsed is not None:
                     if attempt > 1:
                         logger.info(f"PIPELINE.{stage} | LLM succeeded on attempt {attempt}")
                     return parsed
@@ -769,6 +750,7 @@ class EvaluationService:
                 importance=importance,
                 category=category,
                 parent_category=parent,
+                capability_label=(s.get("capability_label") or None),
             ))
 
         exp_raw = raw.get("experience_requirements") or {}

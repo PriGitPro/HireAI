@@ -48,6 +48,14 @@ class GapSeverity(str, Enum):
     MINOR = "minor"         # nice-to-have misses
 
 
+class CapabilityLevel(str, Enum):
+    """Aggregate match level for a whole capability area."""
+    STRONG  = "strong"   # ≥ 70% of capability skills matched (strong or partial)
+    PARTIAL = "partial"  # 40–69%
+    WEAK    = "weak"     # 10–39%
+    MISSING = "missing"  # < 10%
+
+
 class YearsMatch(str, Enum):
     EXCEEDS = "exceeds"
     MEETS = "meets"
@@ -71,6 +79,7 @@ class ParsedSkillRequirement(BaseModel):
     importance: SkillImportance = SkillImportance.IMPORTANT
     category: SkillCategory = SkillCategory.TECHNICAL
     parent_category: Optional[str] = None  # Set by ontology
+    capability_label: Optional[str] = None  # Original JD capability area phrase (e.g. "Agent Architecture & Engineering")
 
     @field_validator("name", "canonical_name", mode="before")
     @classmethod
@@ -111,6 +120,25 @@ class ParsedJobDescription(BaseModel):
     @property
     def important_skills(self) -> list[ParsedSkillRequirement]:
         return [s for s in self.required_skills if s.importance == SkillImportance.IMPORTANT]
+
+
+# ── Capability Assessment (D4c) ───────────────────────────────────────────────
+
+class CapabilityAssessment(BaseModel):
+    """Aggregate evaluation for a single capability area from the JD.
+
+    A capability is a named group of required skills (e.g. 'Agent Architecture
+    & Engineering').  This is computed deterministically from the SkillMatchResults
+    — no additional LLM call required.
+    """
+    capability: str            # e.g. "Agent Architecture & Engineering"
+    level: CapabilityLevel
+    score: float = Field(..., ge=0.0, le=100.0)  # 0–100 aggregate
+    total_skills: int          # number of JD skills in this capability group
+    matched_skills: int        # strong + partial matches
+    constituent_skills: list[str] = Field(default_factory=list)  # canonical names
+    key_evidence: str = ""     # best evidence sentence from matched skills
+    importance: str = "important"  # critical | important | secondary (dominant)
 
 
 # ── Stage D3: Parsed Resume ───────────────────────────────────────────────────
@@ -183,6 +211,7 @@ class SkillMatchResult(BaseModel):
     # Requirement info
     required_skill: str = Field(..., description="Canonical required skill name")
     importance: SkillImportance = SkillImportance.IMPORTANT
+    capability_label: Optional[str] = None  # Original JD capability area (for UI grouping)
 
     # Match result (deterministic)
     match_level: MatchLevel = MatchLevel.MISSING
@@ -201,6 +230,7 @@ class SkillMatchResult(BaseModel):
                 self.match_level = MatchLevel.WEAK
                 self.match_reason = f"[downgraded: no evidence] {self.match_reason}"
         return self
+
 
 
 # ── Stage D4b: Experience Assessment ─────────────────────────────────────────
@@ -285,6 +315,9 @@ class EvaluationOutput(BaseModel):
     experience_assessment: ExperienceAssessment = Field(default_factory=ExperienceAssessment)
     education_assessment: EducationAssessment = Field(default_factory=EducationAssessment)
 
+    # Capability layer (D4c) — additive, non-breaking
+    capability_assessments: list[CapabilityAssessment] = Field(default_factory=list)
+
     # Explainability (derived from signals)
     strengths: list[StrengthEntry] = Field(default_factory=list)
     gaps: list[GapEntry] = Field(default_factory=list)
@@ -323,6 +356,7 @@ class EvaluationOutput(BaseModel):
                     "importance": m.importance.value,
                     "match_reason": m.match_reason,
                     "skill_score": m.skill_score,
+                    "capability_label": getattr(m, "capability_label", None),
                 }
                 for m in self.skill_matches
             ],
@@ -378,5 +412,18 @@ class EvaluationOutput(BaseModel):
                 "gap_severity_score": self.gap_severity_score,
                 "critical_gap_count": len(self.critical_gaps),
                 "trace_id": self.trace_id,
+                "capability_assessments": [
+                    {
+                        "capability": ca.capability,
+                        "level": ca.level.value,
+                        "score": ca.score,
+                        "total_skills": ca.total_skills,
+                        "matched_skills": ca.matched_skills,
+                        "constituent_skills": ca.constituent_skills,
+                        "key_evidence": ca.key_evidence,
+                        "importance": ca.importance,
+                    }
+                    for ca in self.capability_assessments
+                ],
             },
         }

@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "http://localhost:11434"
     LLM_MODEL: str = "llama3.2"
     LLM_TEMPERATURE: float = 0.1  # Low for deterministic parsing outputs
-    LLM_MAX_TOKENS: int = 8192
-    LLM_TIMEOUT: int = 120       # seconds — passed to asyncio.wait_for
+    LLM_MAX_TOKENS: int = 4096    # Structured JSON output never needs more than ~1500 tokens
+    LLM_TIMEOUT: int = 600       # seconds — 10 min ceiling; local Ollama can be slow
 
     # OpenAI
     OPENAI_API_KEY: str = ""
@@ -59,17 +59,26 @@ class Settings(BaseSettings):
     SCORE_HIRE: float = 62.0
     SCORE_CONSIDER: float = 42.0
 
-    # ── Pipeline: caching ────────────────────────────────────────────────────
-    # In-process parse cache (avoids redundant LLM calls)
-    ENABLE_PARSE_CACHE: bool = True
-    PARSE_CACHE_MAX_ENTRIES: int = 500  # LRU eviction above this
-
     # ── Pipeline: feature flags ───────────────────────────────────────────────
     # When True: decision is fully deterministic (no LLM for eval stage)
     SIGNAL_DRIVEN_MODE: bool = True
 
     # When True: return partial fallback instead of hard error on pipeline failure
     ENABLE_PARTIAL_FALLBACK: bool = True
+
+    # ── D4b: Semantic Enrichment (Hybrid Matching) ───────────────────────────
+    # When True: uncertain skill matches (WEAK/MISSING on critical/important skills)
+    # are sent to the LLM as a single batch call for semantic validation.
+    # Rule-based STRONG matches are never re-evaluated — they are always preserved.
+    ENABLE_SEMANTIC_ENRICHMENT: bool = True
+
+    # Minimum LLM confidence required to apply an enrichment upgrade (0.0–1.0).
+    # Below this threshold, the rule-based result is kept unchanged.
+    SEMANTIC_ENRICHMENT_MIN_CONFIDENCE: float = 0.60
+
+    # Maximum number of uncertain skills sent to the LLM in one enrichment batch.
+    # Caps prompt size and latency. Skills beyond this limit are left as-is.
+    SEMANTIC_ENRICHMENT_MAX_BATCH: int = 12
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:3001"]

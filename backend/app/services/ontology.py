@@ -48,6 +48,19 @@ CANONICAL_SKILLS: set[str] = {
     "Computer Vision", "TensorFlow", "PyTorch", "Scikit-learn", "Pandas",
     "NumPy", "Spark", "Hadoop", "Airflow", "Data Engineering",
     "Data Analysis", "Statistics", "A/B Testing",
+    "Data Visualization", "Product Analytics",
+
+    # LLM / AI (modern) — tools
+    "LLM", "Prompt Engineering", "RAG", "OpenAI API", "Langchain", "LlamaIndex",
+    "Vector Databases", "Embeddings",
+
+    # LLM / AI — capability-level canonicals (what JDs actually ask for)
+    "Agentic Frameworks",      # LangChain, LlamaIndex, AutoGen, CrewAI etc.
+    "LLM Observability",       # LangSmith, Langfuse, tracing
+    "AI Product Development",  # end-to-end ML product lifecycle
+    "Fine-Tuning",             # model adaptation
+    "Model Evaluation",        # evals, benchmarking, model accuracy, LLM evals
+    "Data Quality",            # data validation, data integrity, data cleaning
 
     # Architecture & practices
     "Microservices", "Event-Driven Architecture", "Domain-Driven Design",
@@ -65,14 +78,15 @@ CANONICAL_SKILLS: set[str] = {
     # Soft skills
     "Communication", "Leadership", "Mentoring", "Problem Solving",
     "Collaboration", "Project Management",
+    "Stakeholder Management", "Presentation Skills", "Technical Writing",
+    "Documentation", "Cross-Functional Collaboration",
+
+    # Process & methodology
+    "Metrics-Driven Development", "Requirements Analysis", "Process Design",
 
     # Integration / Enterprise
     "API Integration", "ETL", "Data Pipelines", "Webhooks",
     "iPaaS", "Salesforce", "SAP", "Workday",
-
-    # LLM / AI (modern)
-    "LLM", "Prompt Engineering", "RAG", "OpenAI API", "Langchain",
-    "Vector Databases", "Embeddings",
 }
 
 
@@ -179,10 +193,21 @@ ALIAS_MAP: dict[str, str] = {
     # ML/Data
     "ml": "Machine Learning",
     "machine learning": "Machine Learning",
+    "ml models": "Machine Learning",
+    "ml pipelines": "Machine Learning",
+    "model training": "Machine Learning",
+    "model training pipelines": "Machine Learning",  # JD uses this exact phrase
+    "training pipelines": "Machine Learning",
+    "ml engineering": "Machine Learning",
+    "applied ml": "Machine Learning",
+    "applied machine learning": "Machine Learning",
     "dl": "Deep Learning",
     "deep learning": "Deep Learning",
+    "neural networks": "Deep Learning",
+    "neural network": "Deep Learning",
     "nlp": "Natural Language Processing",
     "natural language processing": "Natural Language Processing",
+    "text processing": "Natural Language Processing",
     "cv": "Computer Vision",
     "computer vision": "Computer Vision",
     "tensorflow": "TensorFlow",
@@ -198,6 +223,29 @@ ALIAS_MAP: dict[str, str] = {
     "pyspark": "Spark",
     "airflow": "Airflow",
     "apache airflow": "Airflow",
+
+    # Statistics — plural/variant forms
+    "statistics": "Statistics",
+    "stats": "Statistics",
+    "statistical analysis": "Statistics",
+    "statistical modeling": "Statistics",
+    "statistical modelling": "Statistics",
+    "statistical methods": "Statistics",
+    "probability": "Statistics",
+    "probability and statistics": "Statistics",
+    "quantitative analysis": "Statistics",
+    "bayesian": "Statistics",
+    "regression analysis": "Statistics",
+
+    # Data Analysis — variant forms
+    "data analysis": "Data Analysis",
+    "data analytics": "Data Analysis",
+    "analytics": "Data Analysis",
+    "business analytics": "Data Analysis",
+    "translating complex model metrics": "Data Analysis",  # JD uses this exact phrase
+    "translating metrics": "Data Analysis",
+    "interpreting model results": "Data Analysis",
+    "model interpretation": "Data Analysis",
 
     # Architecture
     "microservice": "Microservices",
@@ -236,16 +284,106 @@ ALIAS_MAP: dict[str, str] = {
 
     # LLM / AI
     "llm": "LLM",
+    "llms": "LLM",                                  # plural form
     "large language model": "LLM",
+    "large language models": "LLM",
+    "foundation models": "LLM",
+    "foundation model": "LLM",
     "prompt engineering": "Prompt Engineering",
+    "prompting": "Prompt Engineering",
+    "prompt design": "Prompt Engineering",
     "rag": "RAG",
     "retrieval augmented generation": "RAG",
+    "retrieval-augmented generation": "RAG",
+    "retrieval augmented": "RAG",
     "langchain": "Langchain",
+    "lang chain": "Langchain",
+    "llamaindex": "LlamaIndex",
+    "llama index": "LlamaIndex",
+    "llama-index": "LlamaIndex",
     "openai": "OpenAI API",
     "chatgpt": "OpenAI API",
+    "gpt-4": "OpenAI API",
+    "gpt4": "OpenAI API",
+    "gpt-3": "OpenAI API",
     "vector db": "Vector Databases",
     "vector database": "Vector Databases",
+    "vector store": "Vector Databases",
+    "pinecone": "Vector Databases",  # specific product → capability
+    "chroma": "Vector Databases",
+    "weaviate": "Vector Databases",
+    "faiss": "Vector Databases",
+    "qdrant": "Vector Databases",
     "embeddings": "Embeddings",
+    "text embeddings": "Embeddings",
+    "agentic": "Agentic Frameworks",
+    "agent framework": "Agentic Frameworks",
+    "agentic framework": "Agentic Frameworks",
+    "agentic ai": "Agentic Frameworks",
+    "agentic orchestration": "Agentic Frameworks",  # JD uses this exact phrase
+    "agent orchestration": "Agentic Frameworks",
+    "multi-agent orchestration": "Agentic Frameworks",
+    "multi agent orchestration": "Agentic Frameworks",
+    "multi-agent systems": "Agentic Frameworks",
+    "multi agent systems": "Agentic Frameworks",
+    "multi-agent": "Agentic Frameworks",
+    "autogen": "Agentic Frameworks",
+    "crewai": "Agentic Frameworks",
+    "llm agents": "Agentic Frameworks",
+    "ai agents": "Agentic Frameworks",
+    "llm observability": "LLM Observability",
+    "langsmith": "LLM Observability",
+    "langfuse": "LLM Observability",
+    "model monitoring": "LLM Observability",
+    "ai product development": "AI Product Development",
+    "ml product development": "AI Product Development",
+    "fine tuning": "Fine-Tuning",
+    "fine-tuning": "Fine-Tuning",
+    "finetuning": "Fine-Tuning",
+    "rlhf": "Fine-Tuning",
+    "instruction tuning": "Fine-Tuning",
+
+    # Model Evaluation (evals) — JDs often use these exact terms
+    "evals": "Model Evaluation",
+    "eval": "Model Evaluation",
+    "model evaluation": "Model Evaluation",
+    "model evaluations": "Model Evaluation",
+    "model accuracy": "Model Evaluation",
+    "model performance": "Model Evaluation",
+    "llm evals": "Model Evaluation",
+    "llm evaluation": "Model Evaluation",
+    "llm evaluations": "Model Evaluation",
+    "benchmarking": "Model Evaluation",
+    "model benchmarking": "Model Evaluation",
+    "evaluation frameworks": "Model Evaluation",
+    "eval frameworks": "Model Evaluation",
+    "model testing": "Model Evaluation",
+    "model assessment": "Model Evaluation",
+
+    # Data Quality — JDs and resumes use these variants
+    "data quality": "Data Quality",
+    "data validation": "Data Quality",
+    "data integrity": "Data Quality",
+    "data cleaning": "Data Quality",
+    "data cleansing": "Data Quality",
+    "data governance": "Data Quality",
+
+    # Soft skills (new)
+    "stakeholder management": "Stakeholder Management",
+    "presentation skills": "Presentation Skills",
+    "presentations": "Presentation Skills",
+    "technical writing": "Technical Writing",
+    "documentation": "Documentation",
+    "cross-functional": "Cross-Functional Collaboration",
+    "cross functional": "Cross-Functional Collaboration",
+
+    # Process
+    "metrics driven": "Metrics-Driven Development",
+    "metrics-driven": "Metrics-Driven Development",
+    "requirements analysis": "Requirements Analysis",
+    "product analytics": "Product Analytics",
+    "data visualization": "Data Visualization",
+    "dataviz": "Data Visualization",
 
     # Soft skills
     "communication": "Communication",
@@ -358,8 +496,14 @@ PARENT_MAP: dict[str, str] = {
     "RAG": "ml",
     "OpenAI API": "ml",
     "Langchain": "ml",
+    "LlamaIndex": "ml",
     "Vector Databases": "ml",
     "Embeddings": "ml",
+    "Agentic Frameworks": "ml",
+    "LLM Observability": "ml",
+    "AI Product Development": "ml",
+    "Fine-Tuning": "ml",
+    "Model Evaluation": "ml",
 
     "Pandas": "data",
     "NumPy": "data",
@@ -372,6 +516,9 @@ PARENT_MAP: dict[str, str] = {
     "Data Pipelines": "data",
     "Statistics": "data",
     "A/B Testing": "data",
+    "Data Quality": "data",
+    "Data Visualization": "data",
+    "Product Analytics": "data",
 
     "Microservices": "architecture",
     "Event-Driven Architecture": "architecture",
@@ -392,6 +539,9 @@ PARENT_MAP: dict[str, str] = {
     "Test-Driven Development": "process",
     "Unit Testing": "process",
     "Integration Testing": "process",
+    "Metrics-Driven Development": "process",
+    "Requirements Analysis": "process",
+    "Process Design": "process",
 
     "Git": "tools",
     "GitHub": "tools",
@@ -410,34 +560,135 @@ PARENT_MAP: dict[str, str] = {
     "Problem Solving": "soft",
     "Collaboration": "soft",
     "Project Management": "soft",
+    "Stakeholder Management": "soft",
+    "Presentation Skills": "soft",
+    "Technical Writing": "soft",
+    "Documentation": "soft",
+    "Cross-Functional Collaboration": "soft",
+
     "MATLAB": "programming",
 }
 
 
-# ── Implication map (parent skill implies partial credit for children) ─────────
-# If candidate has skill A, they get partial credit for skill B
+# ── Implication map (tool/skill → what it implies) ────────────────────────────
+#
+# Three-layer model:
+#   TOOL (e.g. LangChain)  →  CANONICAL SKILL (e.g. RAG, Agentic Frameworks)
+#   CANONICAL SKILL        →  CAPABILITY (e.g. Prompt Engineering → LLM)
+#
+# Rule: if a candidate HAS skill A, they get PARTIAL credit for skill B.
+# This is how LangChain → Agentic Frameworks becomes a partial match.
+#
 IMPLICATION_MAP: dict[str, list[str]] = {
+    # --- Language / framework implications ---
     "TypeScript": ["JavaScript"],
     "Next.js": ["React"],
     "NestJS": ["Node.js"],
-    "PyTorch": ["Machine Learning", "Deep Learning"],
-    "TensorFlow": ["Machine Learning", "Deep Learning"],
-    "Scikit-learn": ["Machine Learning"],
     "Django": ["Python"],
     "Flask": ["Python"],
     "FastAPI": ["Python"],
     "Spring Boot": ["Java"],
     "Rails": ["Ruby"],
+
+    # --- Data engineering ---
     "Spark": ["Data Engineering", "Data Pipelines"],
     "Airflow": ["Data Engineering", "Data Pipelines"],
-    "RAG": ["LLM", "Embeddings", "Vector Databases"],
-    "Langchain": ["LLM"],
-    "Kubernetes": ["Docker"],
+
+    # --- ML framework chains ---
+    "PyTorch": ["Machine Learning", "Deep Learning", "Model Evaluation"],
+    "TensorFlow": ["Machine Learning", "Deep Learning", "Model Evaluation"],
+    "Scikit-learn": ["Machine Learning", "Model Evaluation"],
+
+    # --- Canonical ML → capability implications ---
+    "Machine Learning": ["Model Evaluation", "Statistics"],
+    "Deep Learning": ["Machine Learning", "Model Evaluation"],
+    "Natural Language Processing": ["Machine Learning", "LLM"],
+
+    # --- LLM / AI tool → capability chains ---
+    # TOOL → CANONICAL CAPABILITY
+    "LLM": [
+        "Prompt Engineering",
+        "Model Evaluation",     # knowing LLMs implies you need to evaluate them
+        "AI Product Development",
+    ],
+    "Langchain": [
+        "LLM",
+        "RAG",
+        "Prompt Engineering",
+        "Agentic Frameworks",   # ← KEY: LangChain implies Agentic capability
+        "Vector Databases",
+        "Model Evaluation",
+    ],
+    "LlamaIndex": [
+        "RAG",
+        "LLM",
+        "Vector Databases",
+        "Embeddings",
+        "Agentic Frameworks",   # ← LlamaIndex also implies Agentic capability
+        "Model Evaluation",
+    ],
+    "RAG": [
+        "LLM",
+        "Embeddings",
+        "Vector Databases",
+        "Prompt Engineering",
+        "Model Evaluation",
+    ],
+    "OpenAI API": [
+        "LLM",
+        "Prompt Engineering",
+        "AI Product Development",
+        "Model Evaluation",
+    ],
+    "Agentic Frameworks": [
+        "LLM",
+        "Prompt Engineering",
+        "AI Product Development",
+        "Model Evaluation",
+    ],
+    "Fine-Tuning": [
+        "Machine Learning",
+        "LLM",
+        "AI Product Development",
+        "Model Evaluation",
+    ],
+    "LLM Observability": [
+        "LLM",
+        "AI Product Development",
+        "Model Evaluation",
+    ],
+    "Model Evaluation": [
+        "Machine Learning",
+        "Statistics",           # evaluation requires statistical reasoning
+        "Data Analysis",
+    ],
+    "Vector Databases": [
+        "Embeddings",
+    ],
+
+    # --- Data chains ---
+    "Data Analysis": ["Statistics", "Data Quality"],
+    "Data Engineering": ["Data Pipelines", "Data Quality"],
+    "Pandas": ["Data Analysis", "Statistics"],
+    "NumPy": ["Statistics", "Data Analysis"],
+    "Statistics": ["Data Analysis"],
+
+    # --- DevOps / infra ---
+    "Kubernetes": ["Docker", "Microservices"],
     "GitHub Actions": ["CI/CD"],
     "GitLab CI": ["CI/CD"],
     "Jenkins": ["CI/CD"],
+
+    # --- Architecture ---
     "Domain-Driven Design": ["System Design"],
-    "Microservices": ["System Design"],
+    "Microservices": ["System Design", "Distributed Systems"],
+    "Event-Driven Architecture": ["System Design", "Distributed Systems"],
+
+    # --- Soft skill chains ---
+    "Mentoring": ["Leadership", "Technical Writing", "Knowledge Sharing"],
+    "Cross-Functional Collaboration": ["Collaboration", "Stakeholder Management"],
+    "Stakeholder Management": ["Communication", "Collaboration"],
+    "Technical Writing": ["Documentation", "Communication"],
 }
 
 
@@ -452,35 +703,39 @@ def canonicalize(skill_name: str) -> str:
 
     Resolution order:
       1. Exact match in CANONICAL_SKILLS (case-insensitive)
-      2. Alias map lookup
-      3. Fuzzy: longest canonical name that's a substring of the input
+      2. Exact alias map lookup (normalized input == alias key)
+      3. Canonical name appears as whole-word in the input
+         (e.g. "AWS Lambda" → "AWS", but NOT "engineering" → "R" or "Angular")
       4. Fallback: title-cased version of input (best-effort)
+
+    NOTE: Intentionally NO substring alias matching ("alias in input" or
+    "input in alias") — that caused catastrophic false positives such as
+    "ng" (→Angular) matching inside "engineering", or "r" (→R) matching
+    inside any word.  Aliases must be matched exactly.
     """
     if not skill_name or not skill_name.strip():
         return skill_name
 
     normalized = _normalize(skill_name)
 
-    # 1. Case-insensitive exact match
+    # 1. Case-insensitive exact match against canonical set
     for canonical in CANONICAL_SKILLS:
         if _normalize(canonical) == normalized:
             return canonical
 
-    # 2. Alias map
+    # 2. Exact alias lookup only — NO substring matching
     if normalized in ALIAS_MAP:
         return ALIAS_MAP[normalized]
 
-    # 3. Partial alias match (input contains the alias)
-    for alias, canonical in ALIAS_MAP.items():
-        if alias in normalized or normalized in alias:
-            return canonical
-
-    # 4. Canonical as substring of input (e.g. "AWS Lambda" → "AWS")
+    # 3. Canonical name as a whole-word match inside the input
+    #    e.g. "AWS Lambda" contains whole word "AWS"
+    #    but "engineering" does NOT contain whole word "R"
     for canonical in sorted(CANONICAL_SKILLS, key=len, reverse=True):
-        if _normalize(canonical) in normalized:
+        pattern = r'(?<![\w])' + re.escape(_normalize(canonical)) + r'(?![\w])'
+        if re.search(pattern, normalized):
             return canonical
 
-    # 5. Fallback: best-effort title case
+    # 4. Fallback: title-cased version of input (preserves the skill as-is)
     return skill_name.strip().title()
 
 

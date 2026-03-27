@@ -51,8 +51,10 @@ class LLMResponse:
             return {}
 
         # Strategy 1: Try direct parse
+        # NOTE: use `is not None` — an empty dict {} is valid JSON and must not
+        # be rejected by Python's truthiness check (if parsed: treats {} as False).
         parsed = self._try_json_parse(text)
-        if parsed:
+        if parsed is not None:
             return parsed
 
         # Strategy 2: Extract from markdown code fences
@@ -60,7 +62,7 @@ class LLMResponse:
         fence_matches = re.findall(fence_pattern, text, re.DOTALL)
         for match in fence_matches:
             parsed = self._try_json_parse(match.strip())
-            if parsed:
+            if parsed is not None:
                 logger.debug("LLM.parse | Extracted JSON from code fences")
                 return parsed
 
@@ -70,14 +72,14 @@ class LLMResponse:
         if first_brace != -1 and last_brace > first_brace:
             json_candidate = text[first_brace:last_brace + 1]
             parsed = self._try_json_parse(json_candidate)
-            if parsed:
+            if parsed is not None:
                 logger.debug("LLM.parse | Extracted JSON from brace-delimited block")
                 return parsed
 
             # Strategy 4: Fix common LLM JSON issues and retry
             fixed = self._fix_json(json_candidate)
             parsed = self._try_json_parse(fixed)
-            if parsed:
+            if parsed is not None:
                 logger.debug("LLM.parse | Extracted JSON after fixing common issues")
                 return parsed
 
@@ -98,7 +100,7 @@ class LLMResponse:
 
         if json_lines:
             parsed = self._try_json_parse('\n'.join(json_lines))
-            if parsed:
+            if parsed is not None:
                 logger.debug("LLM.parse | Extracted JSON via line-by-line brace tracking")
                 return parsed
 
@@ -108,7 +110,7 @@ class LLMResponse:
         if raw:
             repaired = self._repair_truncated_json(raw)
             parsed = self._try_json_parse(repaired)
-            if parsed:
+            if parsed is not None:
                 logger.warning(
                     "LLM.parse | Recovered partial JSON via truncation repair"
                     f" | original_len={len(raw)} | repaired_len={len(repaired)}"
@@ -131,7 +133,7 @@ class LLMResponse:
             if isinstance(parsed, dict):
                 logger.info(
                     f"LLM.parse | JSON parsed successfully"
-                    f" | keys={list(parsed.keys())}"
+                    f" | json={parsed}"
                 )
                 return parsed
             elif isinstance(parsed, list):
@@ -233,7 +235,15 @@ class LLMProvider(ABC):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        force_json: bool = False,
     ) -> LLMResponse:
+        """Generate a completion.
+
+        Args:
+            force_json: When True, instruct the provider to constrain output
+                        to valid JSON.  For Ollama this sets ``format="json"``.
+                        Use whenever the caller will call ``response.as_json()``.
+        """
         pass
 
     @abstractmethod
@@ -261,6 +271,7 @@ class OllamaProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        force_json: bool = False,
     ) -> LLMResponse:
         messages = []
         if system_prompt:
@@ -270,11 +281,20 @@ class OllamaProvider(LLMProvider):
         effective_temp = temperature or settings.LLM_TEMPERATURE
         effective_max_tokens = max_tokens or settings.LLM_MAX_TOKENS
 
-        # num_ctx sets the total context window (prompt + output tokens).
-        # Ollama's default is 2048 — far too small for large resume JSON.
-        # We set it to max_tokens * 3 (generous headroom for the prompt)
-        # but at least 8192 so a 1500-token prompt still leaves 6500 for output.
-        effective_num_ctx = max(8192, effective_max_tokens * 3)
+        # num_ctx = context window Ollama allocates (prompt tokens + output tokens).
+        # Ollama's default is 2048 — too small for large prompts.
+        # We estimate prompt tokens from character count (≈ 4 chars/token),
+        # add the output budget, then add 20% headroom.
+        # This avoids the old bug of num_ctx = max_tokens * 3 which grew to
+        # 24 576 tokens — forcing a huge KV-cache alloc and making inference
+        # extremely slow on CPU.  Hard cap at 16 384 to stay tractable.
+        prompt_tokens_est = max(len(prompt) // 4, 256)
+        if system_prompt:
+            prompt_tokens_est += max(len(system_prompt) // 4, 64)
+        effective_num_ctx = min(
+            16384,
+            max(4096, int((prompt_tokens_est + effective_max_tokens) * 1.2))
+        )
 
         payload = {
             "model": self.model,
@@ -287,6 +307,13 @@ class OllamaProvider(LLMProvider):
             },
         }
 
+        # force_json: tell Ollama to constrain sampling to valid JSON tokens.
+        # This eliminates markdown wrapping, prose preamble, and structural
+        # errors — making all the repair strategies unnecessary for the happy
+        # path.  Supported by llama3.x and most modern Ollama models.
+        if force_json:
+            payload["format"] = "json"
+
         prompt_chars = len(prompt)
         system_chars = len(system_prompt) if system_prompt else 0
 
@@ -294,7 +321,7 @@ class OllamaProvider(LLMProvider):
             f"LLM.request | provider=ollama | model={self.model}"
             f" | prompt_chars={prompt_chars} | system_chars={system_chars}"
             f" | temperature={effective_temp} | max_tokens={effective_max_tokens}"
-            f" | num_ctx={effective_num_ctx}"
+            f" | num_ctx={effective_num_ctx} | force_json={force_json}"
         )
         logger.debug(
             f"LLM.request | prompt_preview=\"{prompt[:150].replace(chr(10), ' ')}...\""
@@ -401,6 +428,7 @@ class OpenAIProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        force_json: bool = False,
     ) -> LLMResponse:
         messages = []
         if system_prompt:
@@ -416,10 +444,13 @@ class OpenAIProvider(LLMProvider):
             "temperature": effective_temp,
             "max_tokens": effective_max_tokens,
         }
+        if force_json:
+            payload["response_format"] = {"type": "json_object"}
 
         logger.info(
             f"LLM.request | provider=openai | model={self.model}"
             f" | prompt_chars={len(prompt)} | temperature={effective_temp}"
+            f" | force_json={force_json}"
         )
 
         start = time.time()
@@ -477,6 +508,7 @@ class AnthropicProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        force_json: bool = False,  # Anthropic: handled via prompt instruction (no native mode)
     ) -> LLMResponse:
         payload = {
             "model": self.model,

@@ -34,9 +34,10 @@ Return a JSON object with this exact structure:
     "summary": "2-3 sentence summary of the role",
     "required_skills": [
         {{
-            "name": "skill name",
+            "name": "concrete skill or technology name",
             "importance": "critical|important|secondary",
-            "category": "technical|soft|domain"
+            "category": "technical|soft|domain",
+            "capability_label": "original capability area phrase from JD (or null)"
         }}
     ],
     "experience_requirements": {{
@@ -54,12 +55,35 @@ Return a JSON object with this exact structure:
     "nice_to_haves": ["item1", "item2"]
 }}
 
-Important:
-- Classify skills by importance: critical (must-have), important (strongly preferred), secondary (nice-to-have)
-- Be precise about experience requirements
-- Extract ALL relevant skills mentioned
+CRITICAL INSTRUCTION — Skill Decomposition:
+Many JDs list high-level capability areas (e.g. "Agent Architecture & Engineering",
+"AI Platform Integration", "Cloud-Native Engineering"). These are NOT matchable skills.
+You MUST decompose each capability area into its concrete constituent skills/technologies.
+
+Examples of correct decomposition:
+  "Agent Architecture & Engineering"  ->  LangChain, RAG pipelines, Vector Databases,
+                                          LLM Observability, Agentic Frameworks
+  "AI Platform Integration"           ->  OpenAI API, LLM, Prompt Engineering,
+                                          Machine Learning, REST API
+  "Cloud-Native Engineering"          ->  AWS, Docker, Kubernetes, CI/CD, Microservices
+  "Client Engagement"                 ->  Communication, Stakeholder Management, Presentation Skills
+  "Knowledge Sharing"                 ->  Mentoring, Technical Writing, Documentation
+  "Measure & Improve"                 ->  A/B Testing, Data Analysis, Product Analytics,
+                                          Metrics-Driven Development
+  "Domain-Specific Workflows"         ->  Domain knowledge (healthcare/finance/etc.), Process Design,
+                                          Requirements Analysis
+
+Rules:
+- Each entry in required_skills must be a CONCRETE skill, technology, or competency
+  — never a multi-word section heading or capability phrase
+- Set capability_label to the original section heading from the JD so skills can be
+  grouped visually (e.g. all "Agent Architecture & Engineering" skills together)
+- Classify importance based on how central the capability is to the role:
+  critical = core to role, important = strongly preferred, secondary = nice-to-have
+- Extract ALL constituent skills from provided text only. DO NOT hallucinate.
 
 Respond with ONLY the JSON object. No other text."""
+
 
 
 # ── Resume Parsing ───────────────────────────────────────────────────────────
@@ -78,6 +102,7 @@ Return a JSON object with this exact structure:
     "skills": [
         {{
             "name": "skill name",
+            "category": "technical|soft|domain",
             "proficiency": "expert|advanced|intermediate|beginner",
             "evidence": "brief evidence from resume"
         }}
@@ -87,6 +112,7 @@ Return a JSON object with this exact structure:
             "title": "job title",
             "company": "company name",
             "duration": "approximate duration",
+            "role_summary": "brief summary of the role",
             "highlights": ["key achievement 1", "key achievement 2"]
         }}
     ],
@@ -103,12 +129,81 @@ Return a JSON object with this exact structure:
     "notable_achievements": ["achievement1", "achievement2"]
 }}
 
-Important:
-- Extract skills with evidence of actual usage, not just listing
-- Estimate total years of experience from work history
-- Note any quantified achievements
+CRITICAL INSTRUCTIONS for skill extraction:
+
+1. PARSE STRUCTURED SKILL LISTS.
+   Resumes often list skills in structured sections like:
+     "AI Infrastructure: LangChain, LlamaIndex, Vector DBs"
+     "Cloud: AWS, Kubernetes, Docker"
+     "Languages: Python, TypeScript, Go"
+   You MUST extract EACH comma-separated item as a separate skill entry.
+   Do not skip these sections — they are the most information-dense part of the resume.
+
+2. EMIT ONE ENTRY PER SKILL.
+   Never merge multiple skills into one entry (e.g. do NOT output "LangChain, LlamaIndex").
+   Each skill must have its own JSON object in the skills array.
+
+3. INFER PROFICIENCY FROM CONTEXT.
+   - If the skill is listed under "Core Expertise" or "Expert in" → expert/advanced
+   - If used in multiple job roles → advanced
+   - If mentioned once in passing → intermediate
+   - For skills with no context, default to intermediate
+
+4. EVIDENCE = WHERE/HOW USED.
+   For skills mentioned in job descriptions, quote or summarize the usage context.
+   For skills in skill lists without context, set evidence to the section name
+   (e.g. "Listed under Core AI Infrastructure").
+
+5. DO NOT HALLUCINATE. Only extract skills explicitly mentioned in the resume.
 
 Respond with ONLY the JSON object. No other text."""
+
+
+
+# ── Semantic Enrichment (D4b) ────────────────────────────────────────────────
+
+SEMANTIC_ENRICHMENT_PROMPT = """You are evaluating specific skill matches between a job requirement and a candidate resume.
+
+For each item below, determine whether the candidate's resume provides evidence of competency
+in the required skill — even if the skill is named differently or expressed through related work.
+
+SKILLS TO EVALUATE:
+{skills_to_evaluate}
+
+CANDIDATE RESUME CONTEXT:
+{resume_context}
+
+Return a JSON array with one object per item, in the same order as the input list:
+[
+  {{
+    "index": 0,
+    "required_skill": "exact skill name from input",
+    "demonstrates_competency": true or false,
+    "suggested_match_level": "strong|partial|weak|missing",
+    "confidence": 0.0 to 1.0,
+    "reasoning": "one concise sentence citing specific resume evidence"
+  }}
+]
+
+Scoring rules:
+- "strong"  = candidate clearly demonstrates this skill with concrete, named examples
+- "partial" = candidate likely has the skill based on closely related work or implied usage
+- "weak"    = marginal or indirect evidence; possible but uncertain
+- "missing" = no evidence of this skill — do not infer from unrelated work
+
+Confidence rules:
+- 0.85+  = you are highly confident in your assessment
+- 0.60–0.84 = reasonably confident
+- 0.40–0.59 = uncertain — err toward weak/missing
+- Below 0.40 = very uncertain — set suggested_match_level to "missing"
+
+Critical constraints:
+- DO NOT hallucinate. Only use information explicitly present in the resume context provided.
+- DO NOT upgrade a match purely because of job title. Require actual skill evidence.
+- When in doubt, prefer a lower match level over a higher one.
+- reasoning must reference specific text from the resume (tool names, project descriptions, etc.)
+
+Respond with ONLY the JSON array. No other text."""
 
 
 # ── Full Evaluation ──────────────────────────────────────────────────────────
@@ -174,5 +269,6 @@ EVALUATION RULES:
 6. suggested_actions should be specific and actionable (e.g., "Probe depth of Python experience in technical interview").
 7. decision_trace should show your reasoning steps in order.
 8. Explanation must reference specific evidence, not generic statements.
+9. DO NOT hallucinate. Only use the information provided in the resume and job description.
 
 Respond with ONLY the JSON object. No other text."""

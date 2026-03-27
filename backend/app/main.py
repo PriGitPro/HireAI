@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.datastructures import MutableHeaders
 
 from app.core.config import settings
 from app.core.database import init_db
@@ -24,6 +25,7 @@ logging.basicConfig(
 # Quiet down noisy libraries in DEBUG mode
 logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
@@ -33,21 +35,34 @@ logger = logging.getLogger("hireai.app")
 
 # ── Request Logging Middleware ───────────────────────────────────────────────
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Logs every request/response with timing, correlation IDs, and status."""
+class RequestLoggingMiddleware:
+    """Pure ASGI middleware for request/response logging with timing and correlation IDs.
 
-    async def dispatch(self, request: Request, call_next):
-        # Generate a unique correlation ID for tracing this request
+    Intentionally does NOT use BaseHTTPMiddleware, which wraps StreamingResponse
+    in a cancel scope and causes CancelledError during aiosqlite connection cleanup
+    when a long SSE stream (e.g. 90-second evaluation) closes.
+
+    This implementation is cancel-scope-free, so SSE + aiosqlite connection
+    teardown works correctly.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         correlation_id = uuid.uuid4().hex[:8].upper()
-        request.state.correlation_id = correlation_id
-
+        request = Request(scope, receive)
         method = request.method
         path = request.url.path
         query = str(request.url.query) if request.url.query else ""
         client = request.client.host if request.client else "unknown"
-
-        # Skip noisy health checks from frontend polling
         is_health = "/health" in path
+        is_sse = "/evaluate/stream" in path
+        start_time = time.time()
 
         if not is_health:
             logger.info(
@@ -56,26 +71,28 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 f" | client={client}"
             )
 
-        start_time = time.time()
+        status_holder = [200]
+
+        async def send_with_logging(message):
+            if message["type"] == "http.response.start":
+                status_holder[0] = message["status"]
+                # Inject correlation headers
+                headers = MutableHeaders(scope=message)
+                headers.append("X-Correlation-ID", correlation_id)
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                headers.append("X-Response-Time-Ms", str(elapsed_ms))
+                if not is_health and not is_sse:
+                    status = status_holder[0]
+                    level = logging.INFO if status < 400 else logging.WARNING if status < 500 else logging.ERROR
+                    logger.log(
+                        level,
+                        f"[{correlation_id}] ◀ {method} {path} → {status}"
+                        f" | {elapsed_ms}ms"
+                    )
+            await send(message)
 
         try:
-            response = await call_next(request)
-            elapsed_ms = int((time.time() - start_time) * 1000)
-
-            if not is_health:
-                status = response.status_code
-                level = logging.INFO if status < 400 else logging.WARNING if status < 500 else logging.ERROR
-                logger.log(
-                    level,
-                    f"[{correlation_id}] ◀ {method} {path} → {status}"
-                    f" | {elapsed_ms}ms"
-                )
-
-            # Inject correlation ID into response headers for client-side tracing
-            response.headers["X-Correlation-ID"] = correlation_id
-            response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
-            return response
-
+            await self.app(scope, receive, send_with_logging)
         except Exception as exc:
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.error(

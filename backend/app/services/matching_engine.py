@@ -22,6 +22,8 @@ from app.services.ontology import (
     skills_share_parent,
 )
 from app.services.pipeline_schemas import (
+    CapabilityAssessment,
+    CapabilityLevel,
     EducationAssessment,
     ExperienceAssessment,
     GapEntry,
@@ -93,6 +95,124 @@ def match_skills(
             f" → {result.match_level.value} | score={result.skill_score:.2f}"
         )
 
+    return results
+
+
+def assess_capabilities(
+    jd: ParsedJobDescription,
+    skill_matches: list[SkillMatchResult],
+) -> list[CapabilityAssessment]:
+    """Aggregate skill-level matches into capability-area assessments.
+
+    Strategy:
+    - Group SkillMatchResults by their capability_label (set during JD parsing).
+    - If a skill has no capability_label, group it under its parent_category,
+      or fall back to 'General Requirements'.
+    - For each group compute an aggregate score (weighted by importance) and
+      a CapabilityLevel threshold.
+
+    This is stage D4c — deterministic, zero LLM calls.
+    Order: most-important / worst-covered first (helps recruiters triage).
+    """
+    from collections import defaultdict
+
+    # Build lookup: canonical_name -> SkillMatchResult
+    match_by_skill: dict[str, SkillMatchResult] = {
+        m.required_skill: m for m in skill_matches
+    }
+
+    # Group JD requirements by capability label
+    groups: dict[str, list[ParsedSkillRequirement]] = defaultdict(list)
+    for req in jd.required_skills:
+        key = (
+            req.capability_label
+            or (f"[{req.parent_category.title()}]" if req.parent_category else "General Requirements")
+        )
+        groups[key].append(req)
+
+    results: list[CapabilityAssessment] = []
+
+    SCORE_MAP = {
+        MatchLevel.STRONG:  1.0,
+        MatchLevel.PARTIAL: 0.6,
+        MatchLevel.WEAK:    0.2,
+        MatchLevel.MISSING: 0.0,
+    }
+    IMP_WEIGHT = {
+        SkillImportance.CRITICAL:  1.5,
+        SkillImportance.IMPORTANT: 1.0,
+        SkillImportance.SECONDARY: 0.5,
+    }
+
+    for cap_label, reqs in groups.items():
+        total = len(reqs)
+        weighted_score_sum = 0.0
+        weight_sum = 0.0
+        matched = 0
+        best_evidence = ""
+        constituent_skills: list[str] = []
+
+        # Dominant importance: critical > important > secondary
+        importance_rank = {"critical": 0, "important": 1, "secondary": 2}
+        dominant_importance = min(
+            (r.importance.value for r in reqs),
+            key=lambda v: importance_rank.get(v, 1),
+        )
+
+        for req in reqs:
+            constituent_skills.append(req.canonical_name)
+            m = match_by_skill.get(req.canonical_name)
+            if m is None:
+                continue  # shouldn't happen but defensive
+
+            w = IMP_WEIGHT.get(req.importance, 1.0)
+            s = SCORE_MAP.get(m.match_level, 0.0)
+            weighted_score_sum += s * w
+            weight_sum += w
+
+            if m.match_level in (MatchLevel.STRONG, MatchLevel.PARTIAL):
+                matched += 1
+                if m.evidence and len(m.evidence) > len(best_evidence):
+                    best_evidence = m.evidence
+
+        # Aggregate score 0–100
+        raw_score = (weighted_score_sum / weight_sum) if weight_sum else 0.0
+        score = round(raw_score * 100, 1)
+
+        # Capability level thresholds
+        match_pct = (matched / total) if total else 0.0
+        if match_pct >= 0.70:
+            level = CapabilityLevel.STRONG
+        elif match_pct >= 0.40:
+            level = CapabilityLevel.PARTIAL
+        elif match_pct >= 0.10:
+            level = CapabilityLevel.WEAK
+        else:
+            level = CapabilityLevel.MISSING
+
+        results.append(CapabilityAssessment(
+            capability=cap_label,
+            level=level,
+            score=score,
+            total_skills=total,
+            matched_skills=matched,
+            constituent_skills=constituent_skills,
+            key_evidence=best_evidence[:200] if best_evidence else "",
+            importance=dominant_importance,
+        ))
+
+        logger.debug(
+            f"CAPABILITY | '{cap_label}'"
+            f" → {level.value} | score={score:.0f}"
+            f" | matched={matched}/{total}"
+        )
+
+    # Sort: critical first, then by score ascending (worst first — triage order)
+    def _sort_key(ca: CapabilityAssessment):
+        imp_order = {"critical": 0, "important": 1, "secondary": 2}
+        return (imp_order.get(ca.importance, 1), ca.score)
+
+    results.sort(key=_sort_key)
     return results
 
 
@@ -418,6 +538,7 @@ def _match_single_skill(
     """Match a single required skill against the resume."""
     canonical = req_skill.canonical_name
     importance = req_skill.importance
+    cap_label = req_skill.capability_label  # Preserve for UI grouping
 
     # 1. Direct canonical match
     resume_entry = resume.get_skill_by_canonical(canonical)
@@ -428,6 +549,7 @@ def _match_single_skill(
         return SkillMatchResult(
             required_skill=canonical,
             importance=importance,
+            capability_label=cap_label,
             match_level=match_level,
             matched_skill=resume_entry.canonical_name,
             evidence=resume_entry.evidence or f"Listed as {resume_entry.proficiency} in resume",
@@ -442,6 +564,7 @@ def _match_single_skill(
             return SkillMatchResult(
                 required_skill=canonical,
                 importance=importance,
+                capability_label=cap_label,
                 match_level=MatchLevel.PARTIAL,
                 matched_skill=candidate_skill.canonical_name,
                 evidence=(
@@ -461,6 +584,7 @@ def _match_single_skill(
                 return SkillMatchResult(
                     required_skill=canonical,
                     importance=importance,
+                    capability_label=cap_label,
                     match_level=MatchLevel.WEAK,
                     matched_skill=candidate_skill.canonical_name,
                     evidence=(
@@ -478,11 +602,13 @@ def _match_single_skill(
     return SkillMatchResult(
         required_skill=canonical,
         importance=importance,
+        capability_label=cap_label,
         match_level=MatchLevel.MISSING,
         evidence="",
         match_reason="No matching skill found in resume",
         skill_score=0.0,
     )
+
 
 
 def _proficiency_to_match_level(proficiency: str) -> MatchLevel:
