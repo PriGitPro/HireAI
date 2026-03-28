@@ -25,6 +25,7 @@ from app.services.pipeline_schemas import (
     CapabilityAssessment,
     CapabilityLevel,
     EducationAssessment,
+    ExecutionCapabilityAssessment,
     ExperienceAssessment,
     GapEntry,
     GapSeverity,
@@ -67,6 +68,46 @@ EDUCATION_LEVELS: dict[str, int] = {
     "none": 0, "high school": 1, "associate": 2,
     "bachelor": 3, "master": 4, "phd": 5, "doctorate": 5,
 }
+
+# ── Execution Capability keyword pools ────────────────────────────────────────
+# Each pool targets one sub-dimension. Scoring: hit_rate = min(1, hits / (len*0.3))
+# so ~30% of the keyword list is a full hit, avoiding over-sensitivity.
+
+_KW_SYSTEM_DESIGN = [
+    "architect", "architecture", "design pattern", "microservice", "system design",
+    "distributed system", "scalab", "api design", "schema design", "infrastructure",
+    "technical lead", "led design", "designed the", "service mesh", "event-driven",
+    "domain-driven", "data model", "platform design",
+]
+_KW_PROJECT_OWNERSHIP = [
+    "owned", "led", "built", "launched", "delivered", "drove", "responsible for",
+    "managed the", "end-to-end", "from scratch", "solo", "founded", "spearheaded",
+    "initiated", "shipped", "created", "developed and deployed", "took ownership",
+]
+_KW_LEADERSHIP = [
+    "managed", "mentored", "coached", "hired", "grew the team", "cross-functional",
+    "stakeholder", "director", "vp ", "head of", "team of", "reports to",
+    "line manager", "people manager", "led a team", "managed a team", "tech lead",
+]
+_KW_PRODUCTION_SCALE = [
+    "million user", "billion", "10x", "high traffic", "high availability", "99.",
+    "production", "enterprise", "global", "petabyte", "terabyte", "at scale",
+    "millions of", "thousands of", "large-scale", "mission-critical", "zero downtime",
+]
+
+
+def _kw_hit_rate(blob: str, keywords: list[str]) -> float:
+    """Return normalised keyword hit rate (0–1) for a given text blob.
+
+    Threshold: need ~30% of keywords to hit for a rate of 1.0.
+    This avoids single-keyword matches inflating the score.
+    """
+    if not blob:
+        return 0.0
+    blob_lower = blob.lower()
+    hits = sum(1 for kw in keywords if kw.lower() in blob_lower)
+    threshold = max(len(keywords) * 0.3, 1)
+    return min(1.0, hits / threshold)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -214,6 +255,87 @@ def assess_capabilities(
 
     results.sort(key=_sort_key)
     return results
+
+
+def assess_execution_capability(resume: ParsedResume) -> ExecutionCapabilityAssessment:
+    """Assess execution capability via keyword signals on resume text.
+
+    Sources scanned (richest text first):
+      - Experience role highlights (most signal-dense)
+      - Notable achievements
+      - Skill evidence strings
+      - Role titles + company names
+      - Resume summary
+
+    Sub-scores:
+      system_design    — architecture, distributed systems, platform design
+      project_ownership — end-to-end delivery, ownership language
+      leadership       — team management, mentoring, cross-functional
+      production_scale — scale indicators, enterprise, high availability
+
+    Composite: 0.35 * design + 0.30 * ownership + 0.20 * leadership + 0.15 * scale
+
+    Confidence is capped at 'medium' — keyword signals are proxies, not truth.
+    Only a structured LLM assessment would warrant 'high' confidence.
+    """
+    # Gather all resume text into a single blob
+    text_parts: list[str] = [resume.summary]
+
+    for exp in resume.experience:
+        if exp.title:
+            text_parts.append(exp.title)
+        if exp.company:
+            text_parts.append(exp.company)
+        text_parts.extend(exp.highlights)
+
+    text_parts.extend(resume.notable_achievements)
+    text_parts.extend(s.evidence for s in resume.skills if s.evidence.strip())
+
+    blob = " ".join(p for p in text_parts if p)
+    evidence_text_length = len(blob)
+
+    # Score each sub-dimension
+    sys_design = _kw_hit_rate(blob, _KW_SYSTEM_DESIGN)
+    ownership  = _kw_hit_rate(blob, _KW_PROJECT_OWNERSHIP)
+    leadership = _kw_hit_rate(blob, _KW_LEADERSHIP)
+    prod_scale = _kw_hit_rate(blob, _KW_PRODUCTION_SCALE)
+
+    composite = 0.35 * sys_design + 0.30 * ownership + 0.20 * leadership + 0.15 * prod_scale
+
+    # Track which dimensions had any signal
+    signals_found: list[str] = []
+    if sys_design > 0:
+        signals_found.append("system_design")
+    if ownership > 0:
+        signals_found.append("project_ownership")
+    if leadership > 0:
+        signals_found.append("leadership")
+    if prod_scale > 0:
+        signals_found.append("production_scale")
+
+    # Confidence: medium only if resume is rich AND multiple dimensions fired
+    if evidence_text_length > 800 and len(signals_found) >= 3:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    logger.debug(
+        f"EXEC_CAP | design={sys_design:.2f} own={ownership:.2f}"
+        f" lead={leadership:.2f} scale={prod_scale:.2f}"
+        f" composite={composite:.2f} conf={confidence}"
+        f" evidence_len={evidence_text_length}"
+    )
+
+    return ExecutionCapabilityAssessment(
+        system_design_score=round(sys_design * 100, 1),
+        project_ownership_score=round(ownership * 100, 1),
+        leadership_score=round(leadership * 100, 1),
+        production_scale_score=round(prod_scale * 100, 1),
+        composite_score=round(composite * 100, 1),
+        confidence=confidence,
+        evidence_text_length=evidence_text_length,
+        signals_found=signals_found,
+    )
 
 
 def assess_experience(

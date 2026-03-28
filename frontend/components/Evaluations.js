@@ -1648,32 +1648,27 @@ function computeScoreBreakdown(evaluation) {
   }
 
   // ── EXECUTION CAPABILITY ───────────────────────────────────────────────────
-  // Formula: 0.35*architecture + 0.30*ownership + 0.20*leadership + 0.15*scale
-  const textSignals = [
-    ...(evaluation.strengths || []).map(s => typeof s === 'string' ? s : (s.description || '')),
-    ...(evaluation.skill_matches || []).map(s => s.evidence || ''),
-    evaluation.explanation || '',
-  ].filter(Boolean);
-
-  if (textSignals.length > 0) {
-    const arch  = kwHitRate(textSignals, KW_ARCHITECTURE);
-    const own   = kwHitRate(textSignals, KW_OWNERSHIP);
-    const lead  = kwHitRate(textSignals, KW_LEADERSHIP);
-    const scale = kwHitRate(textSignals, KW_SCALE);
-    const capScore = Math.round(100 * (0.35 * arch + 0.30 * own + 0.20 * lead + 0.15 * scale));
-    const confidence = textSignals.join(' ').length > 300 ? 'Medium' : 'Low';
+  // Reads structured scores from backend (pipeline_schemas.ExecutionCapabilityAssessment).
+  // Backend scans real resume text (highlights, achievements, skill evidence) —
+  // much richer signal than frontend keyword-scanning on LLM summary text.
+  const execCap = evaluation.execution_capability;
+  if (execCap && execCap.composite_score != null) {
+    // Backend confidence is 'low'|'medium' — capitalise for display
+    const execConf = execCap.confidence
+      ? execCap.confidence.charAt(0).toUpperCase() + execCap.confidence.slice(1)
+      : 'Low';
     categories.push({
       name: 'EXECUTION CAPABILITY',
       label: 'Execution Capability',
-      score: Math.max(0, Math.min(100, capScore)),
+      score: Math.round(execCap.composite_score),
       weight: 25,
       benchmark: BENCHMARK,
-      confidence,
+      confidence: execConf,
       subScores: [
-        { label: 'System design',     value: Math.round(arch * 100) },
-        { label: 'Project ownership', value: Math.round(own * 100) },
-        { label: 'Leadership',        value: Math.round(lead * 100) },
-        { label: 'Production scale',  value: Math.round(scale * 100) },
+        { label: 'System design',     value: Math.round(execCap.system_design_score    ?? 0) },
+        { label: 'Project ownership', value: Math.round(execCap.project_ownership_score ?? 0) },
+        { label: 'Leadership',        value: Math.round(execCap.leadership_score        ?? 0) },
+        { label: 'Production scale',  value: Math.round(execCap.production_scale_score  ?? 0) },
       ],
     });
   }

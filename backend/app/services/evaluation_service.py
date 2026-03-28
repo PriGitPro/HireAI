@@ -45,6 +45,7 @@ from app.services.llm_provider import LLMResponse, get_llm_provider
 from app.services.matching_engine import (
     assess_capabilities,
     assess_education,
+    assess_execution_capability,
     assess_experience,
     build_gaps,
     build_strengths,
@@ -350,6 +351,17 @@ class EvaluationService:
 
             # D4c: Capability layer — additive, no LLM, non-breaking
             capability_assessments = assess_capabilities(jd_parsed, skill_matches)
+
+            # D4d: Execution Capability — keyword-signal assessment on resume text
+            execution_capability = assess_execution_capability(resume_parsed)
+            logger.info(
+                f"PIPELINE | D4d execution capability"
+                f" | composite={execution_capability.composite_score:.0f}"
+                f" | confidence={execution_capability.confidence}"
+                f" | signals={execution_capability.signals_found}"
+                f" | evidence_len={execution_capability.evidence_text_length}"
+            )
+
             logger.info(
                 f"PIPELINE | D4c capability layer"
                 f" | capabilities={len(capability_assessments)}"
@@ -412,6 +424,7 @@ class EvaluationService:
                 trace_id=trace_id,
             )
             eval_output.capability_assessments = capability_assessments
+            eval_output.execution_capability = execution_capability
             # Re-derive actions now that we have the recommendation
             eval_output.suggested_actions = build_suggested_actions(
                 gaps, skill_matches, eval_output.recommendation.value
@@ -656,6 +669,8 @@ class EvaluationService:
             "suggested_actions": e.suggested_actions,
             # Capability layer — stored in debug_metadata, surfaced here
             "capability_assessments": debug.get("capability_assessments", []),
+            # Execution capability — top-level field, directly readable by frontend
+            "execution_capability": e.debug_metadata.get("execution_capability") if e.debug_metadata else None,
             "override_decision": e.override_decision,
             "override_reason": e.override_reason,
             "overridden_by": e.overridden_by,

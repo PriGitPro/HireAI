@@ -257,7 +257,28 @@ class EducationAssessment(BaseModel):
     score: float = Field(50.0, ge=0.0, le=100.0)
 
 
-# ── Stage D4d: Gap Analysis ───────────────────────────────────────────────────
+# ── Stage D4d: Execution Capability Assessment ───────────────────────────────
+
+class ExecutionCapabilityAssessment(BaseModel):
+    """Keyword-signal-based execution capability assessment from resume text.
+
+    Four sub-dimensions evaluated against resume experience highlights,
+    achievements, and skill evidence — no LLM call required.
+
+    Sub-scores are 0–100. Confidence is capped at 'medium' because keyword
+    detection is a proxy signal, not a structured LLM assessment.
+    """
+    system_design_score: float = Field(0.0, ge=0.0, le=100.0)
+    project_ownership_score: float = Field(0.0, ge=0.0, le=100.0)
+    leadership_score: float = Field(0.0, ge=0.0, le=100.0)
+    production_scale_score: float = Field(0.0, ge=0.0, le=100.0)
+    composite_score: float = Field(0.0, ge=0.0, le=100.0)
+    confidence: str = "low"          # "medium" | "low"  (never "high" — proxy signal)
+    evidence_text_length: int = 0    # total chars scanned — transparency
+    signals_found: list[str] = Field(default_factory=list)  # which dimensions had hits
+
+
+# ── Stage D4e: Gap Analysis ───────────────────────────────────────────────────
 
 class GapEntry(BaseModel):
     """A single identified gap with severity classification."""
@@ -317,6 +338,11 @@ class EvaluationOutput(BaseModel):
 
     # Capability layer (D4c) — additive, non-breaking
     capability_assessments: list[CapabilityAssessment] = Field(default_factory=list)
+
+    # Execution capability (D4d) — keyword-signal assessment, additive, non-breaking
+    execution_capability: ExecutionCapabilityAssessment = Field(
+        default_factory=ExecutionCapabilityAssessment
+    )
 
     # Explainability (derived from signals)
     strengths: list[StrengthEntry] = Field(default_factory=list)
@@ -412,6 +438,17 @@ class EvaluationOutput(BaseModel):
                 "gap_severity_score": self.gap_severity_score,
                 "critical_gap_count": len(self.critical_gaps),
                 "trace_id": self.trace_id,
+                # Execution capability stored in debug_metadata (no dedicated ORM column)
+                "execution_capability": {
+                    "system_design_score": self.execution_capability.system_design_score,
+                    "project_ownership_score": self.execution_capability.project_ownership_score,
+                    "leadership_score": self.execution_capability.leadership_score,
+                    "production_scale_score": self.execution_capability.production_scale_score,
+                    "composite_score": self.execution_capability.composite_score,
+                    "confidence": self.execution_capability.confidence,
+                    "evidence_text_length": self.execution_capability.evidence_text_length,
+                    "signals_found": self.execution_capability.signals_found,
+                },
                 "capability_assessments": [
                     {
                         "capability": ca.capability,
