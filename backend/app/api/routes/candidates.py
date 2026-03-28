@@ -424,13 +424,17 @@ def _to_candidate_detail(c: Candidate, evaluation=None) -> CandidateDetail:
 
 
 def _to_evaluation_response(e: Evaluation) -> EvaluationResponse:
+    debug = e.debug_metadata or {}
     return EvaluationResponse(
         id=e.id, candidate_id=e.candidate_id,
         recommendation=e.recommendation, confidence=e.confidence,
         composite_score=e.composite_score, skill_matches=e.skill_matches,
         experience_assessment=e.experience_assessment, education_assessment=e.education_assessment,
         strengths=e.strengths, gaps=e.gaps, explanation=e.explanation,
+        decision_summary=debug.get("decision_summary"),
         decision_trace=e.decision_trace, suggested_actions=e.suggested_actions,
+        execution_capability=debug.get("execution_capability"),
+        capability_assessments=debug.get("capability_assessments", []),
         override_decision=e.override_decision, override_reason=e.override_reason,
         overridden_by=e.overridden_by, overridden_at=e.overridden_at,
         trace_id=e.trace_id,
