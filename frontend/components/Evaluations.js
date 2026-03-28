@@ -623,6 +623,7 @@ export default function Evaluations({ requisition, onBack }) {
                               const subSummary = cat.subScores
                                 ? cat.subScores.map(ss => `${ss.label} ${ss.value}%`).join(' · ')
                                 : null;
+                              const isLLMAssessed = cat.assessmentMethod === 'llm';
                               return (
                                 <div key={cat.name}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -640,6 +641,21 @@ export default function Evaluations({ requisition, onBack }) {
                                       <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                                         {cat.percentile}
                                       </span>
+                                      {cat.assessmentMethod && (
+                                        <span
+                                          title={isLLMAssessed ? 'Scored by LLM with evidence citations' : 'Scored by keyword heuristic — re-evaluate for LLM assessment'}
+                                          style={{
+                                            fontSize: '0.55rem', fontWeight: 600, padding: '1px 4px',
+                                            borderRadius: 4,
+                                            background: isLLMAssessed ? '#3b82f622' : '#71717a22',
+                                            color: isLLMAssessed ? '#60a5fa' : 'var(--text-muted)',
+                                            border: `1px solid ${isLLMAssessed ? '#3b82f644' : '#71717a44'}`,
+                                            cursor: 'help',
+                                          }}
+                                        >
+                                          {isLLMAssessed ? 'LLM' : 'KW'}
+                                        </span>
+                                      )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       <span style={{ fontSize: '0.68rem', color: vsColor }}>{vsSign}{cat.vsBaseline}%</span>
@@ -1656,6 +1672,8 @@ function computeScoreBreakdown(evaluation) {
     const execConf = execCap.confidence
       ? execCap.confidence.charAt(0).toUpperCase() + execCap.confidence.slice(1)
       : 'Low';
+    const dimEv = execCap.dimension_evidence || {};
+    const isLLM = execCap.assessment_method === 'llm';
     categories.push({
       name: 'EXECUTION CAPABILITY',
       label: 'Execution Capability',
@@ -1663,11 +1681,12 @@ function computeScoreBreakdown(evaluation) {
       weight: 25,
       benchmark: BENCHMARK,
       confidence: execConf,
+      assessmentMethod: isLLM ? 'llm' : 'keyword',
       subScores: [
-        { label: 'System design',     value: Math.round(execCap.system_design_score     ?? 0) },
-        { label: 'Project ownership', value: Math.round(execCap.project_ownership_score ?? 0) },
-        { label: 'Leadership',        value: Math.round(execCap.leadership_score        ?? 0) },
-        { label: 'Production scale',  value: Math.round(execCap.production_scale_score  ?? 0) },
+        { label: 'System design',     value: Math.round(execCap.system_design_score     ?? 0), evidence: dimEv.system_design     || '' },
+        { label: 'Project ownership', value: Math.round(execCap.project_ownership_score ?? 0), evidence: dimEv.project_ownership || '' },
+        { label: 'Leadership',        value: Math.round(execCap.leadership_score        ?? 0), evidence: dimEv.leadership        || '' },
+        { label: 'Production scale',  value: Math.round(execCap.production_scale_score  ?? 0), evidence: dimEv.production_scale  || '' },
       ],
     });
   } else {

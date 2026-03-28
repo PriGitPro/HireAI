@@ -46,6 +46,7 @@ from app.services.matching_engine import (
     assess_capabilities,
     assess_education,
     assess_execution_capability,
+    assess_execution_capability_llm,
     assess_experience,
     build_gaps,
     build_strengths,
@@ -352,10 +353,13 @@ class EvaluationService:
             # D4c: Capability layer — additive, no LLM, non-breaking
             capability_assessments = assess_capabilities(jd_parsed, skill_matches)
 
-            # D4d: Execution Capability — keyword-signal assessment on resume text
-            execution_capability = assess_execution_capability(resume_parsed)
+            # D4d: Execution Capability — LLM-assessed with keyword fallback
+            execution_capability = await assess_execution_capability_llm(
+                resume_parsed, self.llm
+            )
             logger.info(
                 f"PIPELINE | D4d execution capability"
+                f" | method={execution_capability.assessment_method}"
                 f" | composite={execution_capability.composite_score:.0f}"
                 f" | confidence={execution_capability.confidence}"
                 f" | signals={execution_capability.signals_found}"

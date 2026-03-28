@@ -260,22 +260,26 @@ class EducationAssessment(BaseModel):
 # ── Stage D4d: Execution Capability Assessment ───────────────────────────────
 
 class ExecutionCapabilityAssessment(BaseModel):
-    """Keyword-signal-based execution capability assessment from resume text.
+    """LLM-assessed execution capability across four sub-dimensions.
 
-    Four sub-dimensions evaluated against resume experience highlights,
-    achievements, and skill evidence — no LLM call required.
+    Four sub-dimensions scored by the LLM against resume experience, achievements,
+    and skill evidence. Falls back to keyword heuristic if LLM is unavailable.
 
-    Sub-scores are 0–100. Confidence is capped at 'medium' because keyword
-    detection is a proxy signal, not a structured LLM assessment.
+    Sub-scores are 0–100. Confidence reflects evidence quality:
+      'high'   — LLM found explicit, named evidence for 3+ dimensions
+      'medium' — LLM found partial or indirect evidence, or fallback used
+      'low'    — little or no evidence; keyword fallback
     """
     system_design_score: float = Field(0.0, ge=0.0, le=100.0)
     project_ownership_score: float = Field(0.0, ge=0.0, le=100.0)
     leadership_score: float = Field(0.0, ge=0.0, le=100.0)
     production_scale_score: float = Field(0.0, ge=0.0, le=100.0)
     composite_score: float = Field(0.0, ge=0.0, le=100.0)
-    confidence: str = "low"          # "medium" | "low"  (never "high" — proxy signal)
+    confidence: str = "low"          # "high" | "medium" | "low"
     evidence_text_length: int = 0    # total chars scanned — transparency
-    signals_found: list[str] = Field(default_factory=list)  # which dimensions had hits
+    signals_found: list[str] = Field(default_factory=list)  # which dimensions had evidence
+    dimension_evidence: dict[str, str] = Field(default_factory=dict)  # dim -> quoted evidence
+    assessment_method: str = "keyword"  # "llm" | "keyword" — which path produced this
 
 
 # ── Stage D4e: Gap Analysis ───────────────────────────────────────────────────

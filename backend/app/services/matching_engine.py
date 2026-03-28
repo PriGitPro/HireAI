@@ -7,13 +7,18 @@ Given a ParsedJobDescription (D2) and a ParsedResume (D3), produces:
   - GapEntry list (with severity classification)
   - StrengthEntry list (evidence-backed)
 
-No LLM calls. All logic is rule-based and reproducible.
+D4d Execution Capability uses an LLM assessment (assess_execution_capability_llm)
+with keyword-heuristic fallback (assess_execution_capability) for offline/error cases.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from app.services.llm_provider import LLMProvider
 
 from app.services.ontology import (
     canonicalize,
@@ -335,7 +340,115 @@ def assess_execution_capability(resume: ParsedResume) -> ExecutionCapabilityAsse
         confidence=confidence,
         evidence_text_length=evidence_text_length,
         signals_found=signals_found,
+        assessment_method="keyword",
     )
+
+
+async def assess_execution_capability_llm(
+    resume: ParsedResume,
+    llm_provider: "LLMProvider",
+) -> ExecutionCapabilityAssessment:
+    """Assess execution capability using LLM reasoning with keyword fallback.
+
+    Primary path: structured LLM assessment over the full resume text.
+    The LLM reads experience highlights, achievements, and skill evidence
+    and scores four dimensions with cited evidence, enabling 'high' confidence.
+
+    Fallback: if the LLM call fails or returns malformed JSON, falls back to
+    the keyword heuristic (assess_execution_capability) which caps at 'medium'.
+    """
+    from app.services.prompts import EXECUTION_CAPABILITY_PROMPT
+
+    # Build rich resume text (same blob used by keyword fallback)
+    text_parts: list[str] = [resume.summary]
+    for exp in resume.experience:
+        if exp.title:
+            text_parts.append(exp.title)
+        if exp.company:
+            text_parts.append(exp.company)
+        if exp.role_summary:
+            text_parts.append(exp.role_summary)
+        text_parts.extend(exp.highlights)
+    text_parts.extend(resume.notable_achievements)
+    text_parts.extend(s.evidence for s in resume.skills if s.evidence.strip())
+    blob = "\n".join(p for p in text_parts if p)
+
+    prompt = EXECUTION_CAPABILITY_PROMPT.format(resume_text=blob)
+
+    try:
+        response = await llm_provider.complete(prompt)
+        raw = response.content.strip()
+
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        data = json.loads(raw)
+
+        def _clamp(v, lo=0.0, hi=100.0) -> float:
+            try:
+                return max(lo, min(hi, float(v)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        sys_d  = _clamp(data.get("system_design_score", 0))
+        own    = _clamp(data.get("project_ownership_score", 0))
+        lead   = _clamp(data.get("leadership_score", 0))
+        scale  = _clamp(data.get("production_scale_score", 0))
+
+        # Recompute composite from sub-scores rather than trusting LLM arithmetic
+        composite = 0.35 * sys_d + 0.30 * own + 0.20 * lead + 0.15 * scale
+
+        raw_conf = str(data.get("confidence", "low")).lower()
+        confidence = raw_conf if raw_conf in ("high", "medium", "low") else "medium"
+
+        signals_found: list[str] = [
+            s for s in data.get("signals_found", [])
+            if s in ("system_design", "project_ownership", "leadership", "production_scale")
+        ]
+        # Rebuild signals_found from scored dimensions if LLM omitted them
+        if not signals_found:
+            if sys_d >= 30:
+                signals_found.append("system_design")
+            if own >= 30:
+                signals_found.append("project_ownership")
+            if lead >= 30:
+                signals_found.append("leadership")
+            if scale >= 30:
+                signals_found.append("production_scale")
+
+        dim_evidence: dict[str, str] = data.get("dimension_evidence", {})
+        if not isinstance(dim_evidence, dict):
+            dim_evidence = {}
+
+        logger.info(
+            f"EXEC_CAP(LLM) | design={sys_d:.0f} own={own:.0f}"
+            f" lead={lead:.0f} scale={scale:.0f}"
+            f" composite={composite:.0f} conf={confidence}"
+        )
+
+        return ExecutionCapabilityAssessment(
+            system_design_score=round(sys_d, 1),
+            project_ownership_score=round(own, 1),
+            leadership_score=round(lead, 1),
+            production_scale_score=round(scale, 1),
+            composite_score=round(composite, 1),
+            confidence=confidence,
+            evidence_text_length=len(blob),
+            signals_found=signals_found,
+            dimension_evidence=dim_evidence,
+            assessment_method="llm",
+        )
+
+    except Exception as exc:
+        logger.warning(
+            f"EXEC_CAP(LLM) failed ({type(exc).__name__}: {exc})"
+            " — falling back to keyword heuristic"
+        )
+        return assess_execution_capability(resume)
 
 
 def assess_experience(
