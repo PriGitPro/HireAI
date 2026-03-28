@@ -1648,12 +1648,11 @@ function computeScoreBreakdown(evaluation) {
   }
 
   // ── EXECUTION CAPABILITY ───────────────────────────────────────────────────
-  // Reads structured scores from backend (pipeline_schemas.ExecutionCapabilityAssessment).
-  // Backend scans real resume text (highlights, achievements, skill evidence) —
-  // much richer signal than frontend keyword-scanning on LLM summary text.
+  // Prefer structured backend scores (D4d, available after re-evaluation).
+  // Falls back to frontend keyword-scanning on LLM text for older evaluations.
   const execCap = evaluation.execution_capability;
   if (execCap && execCap.composite_score != null) {
-    // Backend confidence is 'low'|'medium' — capitalise for display
+    // ── Backend path (new evaluations) ────────────────────────────────────────
     const execConf = execCap.confidence
       ? execCap.confidence.charAt(0).toUpperCase() + execCap.confidence.slice(1)
       : 'Low';
@@ -1665,22 +1664,59 @@ function computeScoreBreakdown(evaluation) {
       benchmark: BENCHMARK,
       confidence: execConf,
       subScores: [
-        { label: 'System design',     value: Math.round(execCap.system_design_score    ?? 0) },
+        { label: 'System design',     value: Math.round(execCap.system_design_score     ?? 0) },
         { label: 'Project ownership', value: Math.round(execCap.project_ownership_score ?? 0) },
         { label: 'Leadership',        value: Math.round(execCap.leadership_score        ?? 0) },
         { label: 'Production scale',  value: Math.round(execCap.production_scale_score  ?? 0) },
       ],
     });
+  } else {
+    // ── Fallback path (evaluations before D4d backend change) ─────────────────
+    const textSignals = [
+      ...(evaluation.strengths || []).map(s => typeof s === 'string' ? s : (s.description || '')),
+      ...(evaluation.skill_matches || []).map(s => s.evidence || ''),
+      evaluation.explanation || '',
+    ].filter(Boolean);
+    if (textSignals.length > 0) {
+      const arch  = kwHitRate(textSignals, KW_ARCHITECTURE);
+      const own   = kwHitRate(textSignals, KW_OWNERSHIP);
+      const lead  = kwHitRate(textSignals, KW_LEADERSHIP);
+      const scale = kwHitRate(textSignals, KW_SCALE);
+      const capScore = Math.round(100 * (0.35 * arch + 0.30 * own + 0.20 * lead + 0.15 * scale));
+      categories.push({
+        name: 'EXECUTION CAPABILITY',
+        label: 'Execution Capability',
+        score: Math.max(0, Math.min(100, capScore)),
+        weight: 25,
+        benchmark: BENCHMARK,
+        confidence: 'Low',  // keyword-scan on summary text = always low confidence
+        subScores: [
+          { label: 'System design',     value: Math.round(arch * 100) },
+          { label: 'Project ownership', value: Math.round(own * 100) },
+          { label: 'Leadership',        value: Math.round(lead * 100) },
+          { label: 'Production scale',  value: Math.round(scale * 100) },
+        ],
+      });
+    }
   }
 
   // ── ACADEMIC ───────────────────────────────────────────────────────────────
+  // Backend returns string enums for level_match and field_relevance —
+  // convert them to numeric sub-scores before display.
   const acadAssess = evaluation.education_assessment || {};
   const acadScore  = normaliseScore(acadAssess.score);
   if (acadScore != null) {
-    const degreeLevel = normaliseScore(acadAssess.degree_level_score ?? acadAssess.score) ?? acadScore;
-    const fieldRel    = normaliseScore(acadAssess.field_relevance     ?? acadAssess.score) ?? acadScore;
-    const reqsMet     = normaliseScore(acadAssess.requirements_met    ?? acadAssess.score) ?? acadScore;
-    const confidence  = acadScore >= 70 ? 'High' : acadScore >= 45 ? 'Medium' : 'Low';
+    // level_match: "exceeds"|"meets"|"below"|"unknown" → numeric
+    const levelMatchScore = {
+      exceeds: 95, meets: 80, below: 40, unknown: 60,
+    }[acadAssess.level_match] ?? acadScore;
+    // field_relevance: "high"|"medium"|"low"|"unknown" → numeric
+    const fieldRelScore = {
+      high: 90, medium: 70, low: 40, unknown: 60,
+    }[acadAssess.field_relevance] ?? acadScore;
+    // requirements_met: use composite score (no dedicated sub-field)
+    const reqsMet = acadScore;
+    const confidence = acadScore >= 70 ? 'High' : acadScore >= 45 ? 'Medium' : 'Low';
     categories.push({
       name: 'ACADEMIC',
       label: 'Academic',
@@ -1689,8 +1725,8 @@ function computeScoreBreakdown(evaluation) {
       benchmark: BENCHMARK,
       confidence,
       subScores: [
-        { label: 'Degree level',     value: degreeLevel },
-        { label: 'Field relevance',  value: fieldRel },
+        { label: 'Degree level',     value: levelMatchScore },
+        { label: 'Field relevance',  value: fieldRelScore },
         { label: 'Requirements met', value: reqsMet },
       ],
     });
