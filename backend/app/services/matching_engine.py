@@ -400,23 +400,29 @@ async def assess_execution_capability_llm(
         # Recompute composite from sub-scores rather than trusting LLM arithmetic
         composite = 0.35 * sys_d + 0.30 * own + 0.20 * lead + 0.15 * scale
 
-        raw_conf = str(data.get("confidence", "low")).lower()
-        confidence = raw_conf if raw_conf in ("high", "medium", "low") else "medium"
+        # Always derive signals_found from actual scores — don't trust LLM's self-reported list
+        # which can be incomplete (e.g. LLM scored lead=70 but omitted "leadership" from signals)
+        signals_found: list[str] = []
+        if sys_d >= 30:
+            signals_found.append("system_design")
+        if own >= 30:
+            signals_found.append("project_ownership")
+        if lead >= 30:
+            signals_found.append("leadership")
+        if scale >= 30:
+            signals_found.append("production_scale")
 
-        signals_found: list[str] = [
-            s for s in data.get("signals_found", [])
-            if s in ("system_design", "project_ownership", "leadership", "production_scale")
-        ]
-        # Rebuild signals_found from scored dimensions if LLM omitted them
-        if not signals_found:
-            if sys_d >= 30:
-                signals_found.append("system_design")
-            if own >= 30:
-                signals_found.append("project_ownership")
-            if lead >= 30:
-                signals_found.append("leadership")
-            if scale >= 30:
-                signals_found.append("production_scale")
+        # Confidence: derived from how many dimensions have strong evidence (score >= 50)
+        # and whether the LLM response included actual dimension evidence quotes
+        strong_dims = sum(1 for s in [sys_d, own, lead, scale] if s >= 50)
+        dim_evidence_raw: dict = data.get("dimension_evidence", {})
+        evidence_quotes = sum(1 for v in dim_evidence_raw.values() if isinstance(v, str) and v.strip())
+        if strong_dims >= 3 and evidence_quotes >= 2:
+            confidence = "high"
+        elif strong_dims >= 2 or evidence_quotes >= 1:
+            confidence = "medium"
+        else:
+            confidence = "low"
 
         dim_evidence: dict[str, str] = data.get("dimension_evidence", {})
         if not isinstance(dim_evidence, dict):
