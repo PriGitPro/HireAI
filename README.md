@@ -93,8 +93,6 @@ Once the backend is running, visit:
 
 ## Backlog
 
-Now I have the full picture. Here's the production readiness feature list:
-
 ---
 
 ## HireAI — Production Readiness Feature List
