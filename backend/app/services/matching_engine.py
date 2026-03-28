@@ -366,8 +366,6 @@ async def assess_execution_capability_llm(
             text_parts.append(exp.title)
         if exp.company:
             text_parts.append(exp.company)
-        if exp.role_summary:
-            text_parts.append(exp.role_summary)
         text_parts.extend(exp.highlights)
     text_parts.extend(resume.notable_achievements)
     text_parts.extend(s.evidence for s in resume.skills if s.evidence.strip())
