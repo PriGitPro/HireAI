@@ -158,8 +158,13 @@ class EvaluationResponse(BaseModel):
     strengths: Optional[list[dict]] = None             # StrengthResponse dicts (with evidence)
     gaps: Optional[list[dict]] = None                  # GapResponse dicts (with severity)
     explanation: Optional[str] = None
+    decision_summary: Optional[str] = None
     decision_trace: Optional[list[dict]] = None        # TraceStepResponse dicts
     suggested_actions: Optional[list[str]] = None
+
+    # Execution capability (D4d) — LLM-assessed, stored in debug_metadata
+    execution_capability: Optional[dict] = None
+    capability_assessments: Optional[list[dict]] = None
 
     # Override
     override_decision: Optional[str] = None

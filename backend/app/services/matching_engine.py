@@ -7,13 +7,18 @@ Given a ParsedJobDescription (D2) and a ParsedResume (D3), produces:
   - GapEntry list (with severity classification)
   - StrengthEntry list (evidence-backed)
 
-No LLM calls. All logic is rule-based and reproducible.
+D4d Execution Capability uses an LLM assessment (assess_execution_capability_llm)
+with keyword-heuristic fallback (assess_execution_capability) for offline/error cases.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from app.services.llm_provider import LLMProvider
 
 from app.services.ontology import (
     canonicalize,
@@ -25,6 +30,7 @@ from app.services.pipeline_schemas import (
     CapabilityAssessment,
     CapabilityLevel,
     EducationAssessment,
+    ExecutionCapabilityAssessment,
     ExperienceAssessment,
     GapEntry,
     GapSeverity,
@@ -67,6 +73,46 @@ EDUCATION_LEVELS: dict[str, int] = {
     "none": 0, "high school": 1, "associate": 2,
     "bachelor": 3, "master": 4, "phd": 5, "doctorate": 5,
 }
+
+# ── Execution Capability keyword pools ────────────────────────────────────────
+# Each pool targets one sub-dimension. Scoring: hit_rate = min(1, hits / (len*0.3))
+# so ~30% of the keyword list is a full hit, avoiding over-sensitivity.
+
+_KW_SYSTEM_DESIGN = [
+    "architect", "architecture", "design pattern", "microservice", "system design",
+    "distributed system", "scalab", "api design", "schema design", "infrastructure",
+    "technical lead", "led design", "designed the", "service mesh", "event-driven",
+    "domain-driven", "data model", "platform design",
+]
+_KW_PROJECT_OWNERSHIP = [
+    "owned", "led", "built", "launched", "delivered", "drove", "responsible for",
+    "managed the", "end-to-end", "from scratch", "solo", "founded", "spearheaded",
+    "initiated", "shipped", "created", "developed and deployed", "took ownership",
+]
+_KW_LEADERSHIP = [
+    "managed", "mentored", "coached", "hired", "grew the team", "cross-functional",
+    "stakeholder", "director", "vp ", "head of", "team of", "reports to",
+    "line manager", "people manager", "led a team", "managed a team", "tech lead",
+]
+_KW_PRODUCTION_SCALE = [
+    "million user", "billion", "10x", "high traffic", "high availability", "99.",
+    "production", "enterprise", "global", "petabyte", "terabyte", "at scale",
+    "millions of", "thousands of", "large-scale", "mission-critical", "zero downtime",
+]
+
+
+def _kw_hit_rate(blob: str, keywords: list[str]) -> float:
+    """Return normalised keyword hit rate (0–1) for a given text blob.
+
+    Threshold: need ~30% of keywords to hit for a rate of 1.0.
+    This avoids single-keyword matches inflating the score.
+    """
+    if not blob:
+        return 0.0
+    blob_lower = blob.lower()
+    hits = sum(1 for kw in keywords if kw.lower() in blob_lower)
+    threshold = max(len(keywords) * 0.3, 1)
+    return min(1.0, hits / threshold)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -214,6 +260,199 @@ def assess_capabilities(
 
     results.sort(key=_sort_key)
     return results
+
+
+def assess_execution_capability(resume: ParsedResume) -> ExecutionCapabilityAssessment:
+    """Assess execution capability via keyword signals on resume text.
+
+    Sources scanned (richest text first):
+      - Experience role highlights (most signal-dense)
+      - Notable achievements
+      - Skill evidence strings
+      - Role titles + company names
+      - Resume summary
+
+    Sub-scores:
+      system_design    — architecture, distributed systems, platform design
+      project_ownership — end-to-end delivery, ownership language
+      leadership       — team management, mentoring, cross-functional
+      production_scale — scale indicators, enterprise, high availability
+
+    Composite: 0.35 * design + 0.30 * ownership + 0.20 * leadership + 0.15 * scale
+
+    Confidence is capped at 'medium' — keyword signals are proxies, not truth.
+    Only a structured LLM assessment would warrant 'high' confidence.
+    """
+    # Gather all resume text into a single blob
+    text_parts: list[str] = [resume.summary]
+
+    for exp in resume.experience:
+        if exp.title:
+            text_parts.append(exp.title)
+        if exp.company:
+            text_parts.append(exp.company)
+        text_parts.extend(exp.highlights)
+
+    text_parts.extend(resume.notable_achievements)
+    text_parts.extend(s.evidence for s in resume.skills if s.evidence.strip())
+
+    blob = " ".join(p for p in text_parts if p)
+    evidence_text_length = len(blob)
+
+    # Score each sub-dimension
+    sys_design = _kw_hit_rate(blob, _KW_SYSTEM_DESIGN)
+    ownership  = _kw_hit_rate(blob, _KW_PROJECT_OWNERSHIP)
+    leadership = _kw_hit_rate(blob, _KW_LEADERSHIP)
+    prod_scale = _kw_hit_rate(blob, _KW_PRODUCTION_SCALE)
+
+    composite = 0.35 * sys_design + 0.30 * ownership + 0.20 * leadership + 0.15 * prod_scale
+
+    # Track which dimensions had any signal
+    signals_found: list[str] = []
+    if sys_design > 0:
+        signals_found.append("system_design")
+    if ownership > 0:
+        signals_found.append("project_ownership")
+    if leadership > 0:
+        signals_found.append("leadership")
+    if prod_scale > 0:
+        signals_found.append("production_scale")
+
+    # Confidence: medium only if resume is rich AND multiple dimensions fired
+    if evidence_text_length > 800 and len(signals_found) >= 3:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    logger.debug(
+        f"EXEC_CAP | design={sys_design:.2f} own={ownership:.2f}"
+        f" lead={leadership:.2f} scale={prod_scale:.2f}"
+        f" composite={composite:.2f} conf={confidence}"
+        f" evidence_len={evidence_text_length}"
+    )
+
+    return ExecutionCapabilityAssessment(
+        system_design_score=round(sys_design * 100, 1),
+        project_ownership_score=round(ownership * 100, 1),
+        leadership_score=round(leadership * 100, 1),
+        production_scale_score=round(prod_scale * 100, 1),
+        composite_score=round(composite * 100, 1),
+        confidence=confidence,
+        evidence_text_length=evidence_text_length,
+        signals_found=signals_found,
+        assessment_method="keyword",
+    )
+
+
+async def assess_execution_capability_llm(
+    resume: ParsedResume,
+    llm_provider: "LLMProvider",
+) -> ExecutionCapabilityAssessment:
+    """Assess execution capability using LLM reasoning with keyword fallback.
+
+    Primary path: structured LLM assessment over the full resume text.
+    The LLM reads experience highlights, achievements, and skill evidence
+    and scores four dimensions with cited evidence, enabling 'high' confidence.
+
+    Fallback: if the LLM call fails or returns malformed JSON, falls back to
+    the keyword heuristic (assess_execution_capability) which caps at 'medium'.
+    """
+    from app.services.prompts import EXECUTION_CAPABILITY_PROMPT
+
+    # Build rich resume text (same blob used by keyword fallback)
+    text_parts: list[str] = [resume.summary]
+    for exp in resume.experience:
+        if exp.title:
+            text_parts.append(exp.title)
+        if exp.company:
+            text_parts.append(exp.company)
+        text_parts.extend(exp.highlights)
+    text_parts.extend(resume.notable_achievements)
+    text_parts.extend(s.evidence for s in resume.skills if s.evidence.strip())
+    blob = "\n".join(p for p in text_parts if p)
+
+    prompt = EXECUTION_CAPABILITY_PROMPT.format(resume_text=blob)
+
+    try:
+        response = await llm_provider.generate(prompt, force_json=True)
+        raw = response.content.strip()
+
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        data = json.loads(raw)
+
+        def _clamp(v, lo=0.0, hi=100.0) -> float:
+            try:
+                return max(lo, min(hi, float(v)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        sys_d  = _clamp(data.get("system_design_score", 0))
+        own    = _clamp(data.get("project_ownership_score", 0))
+        lead   = _clamp(data.get("leadership_score", 0))
+        scale  = _clamp(data.get("production_scale_score", 0))
+
+        # Recompute composite from sub-scores rather than trusting LLM arithmetic
+        composite = 0.35 * sys_d + 0.30 * own + 0.20 * lead + 0.15 * scale
+
+        # Always derive signals_found from actual scores — don't trust LLM's self-reported list
+        # which can be incomplete (e.g. LLM scored lead=70 but omitted "leadership" from signals)
+        signals_found: list[str] = []
+        if sys_d >= 30:
+            signals_found.append("system_design")
+        if own >= 30:
+            signals_found.append("project_ownership")
+        if lead >= 30:
+            signals_found.append("leadership")
+        if scale >= 30:
+            signals_found.append("production_scale")
+
+        # Confidence: derived from how many dimensions have strong evidence (score >= 50)
+        # and whether the LLM response included actual dimension evidence quotes
+        strong_dims = sum(1 for s in [sys_d, own, lead, scale] if s >= 50)
+        dim_evidence_raw: dict = data.get("dimension_evidence", {})
+        evidence_quotes = sum(1 for v in dim_evidence_raw.values() if isinstance(v, str) and v.strip())
+        if strong_dims >= 3 and evidence_quotes >= 2:
+            confidence = "high"
+        elif strong_dims >= 2 or evidence_quotes >= 1:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        dim_evidence: dict[str, str] = data.get("dimension_evidence", {})
+        if not isinstance(dim_evidence, dict):
+            dim_evidence = {}
+
+        logger.info(
+            f"EXEC_CAP(LLM) | design={sys_d:.0f} own={own:.0f}"
+            f" lead={lead:.0f} scale={scale:.0f}"
+            f" composite={composite:.0f} conf={confidence}"
+        )
+
+        return ExecutionCapabilityAssessment(
+            system_design_score=round(sys_d, 1),
+            project_ownership_score=round(own, 1),
+            leadership_score=round(lead, 1),
+            production_scale_score=round(scale, 1),
+            composite_score=round(composite, 1),
+            confidence=confidence,
+            evidence_text_length=len(blob),
+            signals_found=signals_found,
+            dimension_evidence=dim_evidence,
+            assessment_method="llm",
+        )
+
+    except Exception as exc:
+        logger.warning(
+            f"EXEC_CAP(LLM) failed ({type(exc).__name__}: {exc})"
+            " — falling back to keyword heuristic"
+        )
+        return assess_execution_capability(resume)
 
 
 def assess_experience(

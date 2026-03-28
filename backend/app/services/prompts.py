@@ -206,6 +206,68 @@ Critical constraints:
 Respond with ONLY the JSON array. No other text."""
 
 
+# ── Execution Capability Assessment (D4d) ────────────────────────────────────
+
+EXECUTION_CAPABILITY_PROMPT = """You are assessing a candidate's execution capability across four dimensions
+based solely on their resume. Score each dimension 0–100 using only explicit evidence in the text below.
+
+CANDIDATE RESUME:
+{resume_text}
+
+Evaluate these four dimensions:
+
+1. SYSTEM DESIGN (architecture, distributed systems, platform design, API/schema design)
+   Evidence of: designing or architecting systems, microservices, infrastructure, event-driven/domain-driven design,
+   technical leadership of architecture decisions, platform or framework design.
+
+2. PROJECT OWNERSHIP (end-to-end delivery, individual ownership, founding/building from scratch)
+   Evidence of: "owned", "led", "built from scratch", "launched", "responsible for end-to-end",
+   "drove", "delivered", solo or founding-level work, not just contributing to an existing system.
+
+3. LEADERSHIP (team management, mentoring, cross-functional, people management)
+   Evidence of: directly managing people, mentoring engineers, cross-functional leadership,
+   tech lead or director titles with team scope, hiring or growing a team.
+
+4. PRODUCTION SCALE (operating at meaningful scale — users, data, reliability requirements)
+   Evidence of: millions of users, high availability / SLAs (99.9%+), enterprise/global deployments,
+   petabyte/terabyte data, high-traffic or mission-critical production systems.
+
+Return a JSON object with this exact structure:
+{{
+    "system_design_score": 0-100,
+    "project_ownership_score": 0-100,
+    "leadership_score": 0-100,
+    "production_scale_score": 0-100,
+    "composite_score": 0-100,
+    "confidence": "high|medium|low",
+    "dimension_evidence": {{
+        "system_design": "direct quote or specific evidence phrase from resume, or empty string if none",
+        "project_ownership": "direct quote or specific evidence phrase from resume, or empty string if none",
+        "leadership": "direct quote or specific evidence phrase from resume, or empty string if none",
+        "production_scale": "direct quote or specific evidence phrase from resume, or empty string if none"
+    }},
+    "signals_found": ["system_design", "project_ownership"],
+    "reasoning": "1-2 sentences summarising the strongest evidence and any notable gaps"
+}}
+
+Scoring rules:
+- 80–100: Explicit, named, concrete evidence of strong capability in this dimension
+- 55–79: Clear but indirect or partially described evidence
+- 30–54: Weak or inferred signals only (e.g. implied by title but no specific examples)
+- 0–29: No meaningful evidence for this dimension — do not infer from unrelated experience
+
+Composite score = 0.35 * system_design + 0.30 * project_ownership + 0.20 * leadership + 0.15 * production_scale
+
+Confidence:
+- "high"   — 3 or more dimensions have score >= 60 AND you have explicit quoted evidence for them
+- "medium" — 1–2 dimensions have clear evidence, others are inferred
+- "low"    — limited or no concrete evidence; relying mostly on title/inferences
+
+CRITICAL: Do NOT hallucinate. Only use information explicitly present in the resume.
+Do NOT award high scores based on job title alone — require actual described work.
+Respond with ONLY the JSON object. No other text."""
+
+
 # ── Full Evaluation ──────────────────────────────────────────────────────────
 
 EVALUATION_PROMPT = """You are evaluating a candidate for a specific role. Analyze the match carefully.
