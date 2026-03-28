@@ -4,6 +4,13 @@ AI-assisted candidate evaluation system that produces structured hiring recommen
 
 ## Architecture
 
+<img width="1536" height="1024" alt="resume-evaluation-arch" src="https://github.com/user-attachments/assets/c48b5c5b-fe09-4d64-8d90-8822b5e4b431" />
+
+
+
+## Quick Start
+
+
 ```
 HireAI/
 ├── backend/              # FastAPI Python backend
@@ -22,7 +29,6 @@ HireAI/
 └── README.md
 ```
 
-## Quick Start
 
 ### Prerequisites
 
