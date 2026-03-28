@@ -376,7 +376,7 @@ async def assess_execution_capability_llm(
     prompt = EXECUTION_CAPABILITY_PROMPT.format(resume_text=blob)
 
     try:
-        response = await llm_provider.complete(prompt)
+        response = await llm_provider.generate(prompt, force_json=True)
         raw = response.content.strip()
 
         # Strip markdown fences if present

@@ -452,6 +452,8 @@ class EvaluationOutput(BaseModel):
                     "confidence": self.execution_capability.confidence,
                     "evidence_text_length": self.execution_capability.evidence_text_length,
                     "signals_found": self.execution_capability.signals_found,
+                    "dimension_evidence": self.execution_capability.dimension_evidence,
+                    "assessment_method": self.execution_capability.assessment_method,
                 },
                 "capability_assessments": [
                     {
