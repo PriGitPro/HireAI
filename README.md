@@ -1,5 +1,7 @@
 # ⚡ HireAI — Intelligent Hiring Copilot
 
+**Project Status:** 🚀 Prototype Complete
+
 AI-assisted candidate evaluation system that produces structured hiring recommendations with evidence-backed reasoning.
 
 ## Architecture
