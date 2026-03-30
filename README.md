@@ -1,8 +1,78 @@
 # ⚡ HireAI — Intelligent Hiring Copilot
 
-**Project Status:** 🚀 Prototype Complete
 
-AI-assisted candidate evaluation system that produces structured hiring recommendations with evidence-backed reasoning.
+Explainable AI Decision Systems for Resume Evaluation
+
+Modern AI can generate answers.
+But real-world decision systems require reasoning, transparency, and guardrails.
+
+This project explores how to build an Explainable AI decision engine that evaluates candidates against job requirements and produces traceable hiring recommendations.
+
+Instead of relying purely on LLM outputs, the system combines:
+
+structured signal extraction
+deterministic evaluation logic
+explainable scoring
+LLM-assisted semantic parsing
+guardrailed reasoning pipelines
+
+The result is an AI system that can justify its decisions rather than simply generate them.
+
+
+The engine also identifies:
+
+- critical skill gaps  
+- strength signals  
+- confidence drivers  
+
+
+## Explainable Evaluation Output
+
+Each evaluation produces a structured reasoning report containing:
+
+### Recommendation
+Decision label indicating candidate suitability.
+
+### Confidence Level
+Signal reliability based on evidence coverage.
+
+### Skill Coverage Analysis
+Evidence-backed matches between candidate capabilities and job requirements.
+
+### Strengths and Risks
+Positive and negative signals influencing the evaluation.
+
+### Decision Trace
+Step-by-step reasoning chain explaining how the outcome was derived.
+
+### Composite Score Breakdown
+Weighted contribution from each evaluation dimension.
+    The system surfaces both the **numerical outcome and the reasoning behind it**.
+
+
+## Safety and Guardrails
+
+To ensure reliable AI-assisted decisions, the system enforces several guardrails.
+
+### Evidence Grounding
+Skills must reference supporting resume text.
+
+### Deterministic Scoring
+Identical inputs produce identical outputs.
+
+### Critical Gap Detection
+Missing core requirements cannot be masked by secondary strengths.
+
+### Protected Attribute Exclusion
+Sensitive attributes are ignored during evaluation.
+
+### LLM Output Validation
+All AI outputs are schema-validated before entering the pipeline.
+
+### Decision Traceability
+Every evaluation stores the signals and reasoning steps used to generate the recommendation.
+
+
 
 ## Architecture
 
