@@ -101,6 +101,9 @@ HireAI/
 └── README.md
 ```
 
+<img width="619" height="449" alt="Screenshot 2026-03-31 at 4 00 35 PM" src="https://github.com/user-attachments/assets/f555fd39-a38b-4ec8-aed1-26e3cce60ed5" />
+
+
 
 ### Prerequisites
 
@@ -180,6 +183,17 @@ Once the backend is running, visit:
 ### P0 — Blockers (must fix before any real traffic)
 
 #### Infrastructure
+
+Here's the sequence:
+
+- Now: Vercel + Render + Groq + Sentry 
+- First 100 users: Add Cloudflare, rate limiting, Supabase
+- First 1000 users: Dockerize, move to Railway/Fly.io, add Redis cache
+- First 10,000 users: Add job queue, API gateway, Datadog
+
+  <img width="682" height="513" alt="Screenshot 2026-03-31 at 4 00 24 PM" src="https://github.com/user-attachments/assets/a10d6655-cd6c-4f45-be93-b458a642d7b7" />
+
+
 | # | Feature | Why |
 |---|---|---|
 | 1 | **Replace SQLite → PostgreSQL** | SQLite is file-locked, single-writer, not network-accessible. Every concurrent evaluation contends on one lock. |
