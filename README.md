@@ -1,4 +1,4 @@
-# ⚡ HireAI — Intelligent Hiring Copilot
+# ⚡ HireAI — Intelligent HR Hiring Copilot
 
 
 Explainable AI Decision Systems for Resume Evaluation
